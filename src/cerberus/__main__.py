@@ -125,6 +125,9 @@ class Cerberus:
         self.last_solar_publish_ts: int = 0
         self.last_ble_tick_ts: int = 0
         self.last_obd_tick_ts: int = 0
+        # True until a tick finds no fresh engine row, so the first tick after a
+        # restart clears whatever the last run left retained on the broker.
+        self._engine_live: bool = True
         self.last_cabin_tick_ts: int = 0
         self.last_weather_tick_ts: int = 0
         self.last_govee_cloud_tick_ts: int = 0
@@ -1002,12 +1005,17 @@ class Cerberus:
         except Exception:
             log.exception("latest_engine_sample failed")
             return
-        if sample is None:
-            return
         try:
+            if sample is None:
+                # Once per stop, not every tick: the retained topics hold it.
+                if self._engine_live:
+                    self.publisher.publish_engine_stale()
+                    self._engine_live = False
+                return
             self.publisher.publish_engine_state(sample)
+            self._engine_live = True
         except Exception:
-            log.exception("publish_engine_state failed")
+            log.exception("publish engine state failed")
 
     def _cabin_tick(self) -> None:
         """Read the newest cabin row per sensor from SQLite and publish it.
