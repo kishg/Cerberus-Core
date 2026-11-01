@@ -112,11 +112,17 @@ and events then appear as HA entities.
 
 ## 8. BLE batteries and sensors
 
-Reading Lithionics packs, the ACR or a Govee cabin sensor over Bluetooth is
-not in the wizard yet: add the device addresses under `ble:` in
-`/etc/cerberus/config.yaml` (see this van's [config.yaml](../config.yaml) for
-the shape) and set `ble.enabled: true`. The BLE service starts by itself
-once it is on.
+Lithionics packs, the ACR and Bluetooth thermometers (Govee, Xiaomi,
+SwitchBot, BTHome and others) are found from the UI. Signed in, near the
+devices, open **Settings > Find Bluetooth devices > Scan** (up to a minute),
+tick the ones that are this van's, give each thermometer a name (`cabin`,
+`fridge`…), then **Use selected**. That turns Bluetooth on, and the BLE
+service starts by itself. Devices already connected stop advertising and
+don't show up in a scan; the Bluetooth settings above it list those.
+
+The addresses can also go by hand under `ble:` in `/etc/cerberus/config.yaml`
+(the example [config.yaml](../config.yaml) shows the shape), with
+`ble.enabled: true`.
 
 ## Moving an existing Cerberus to a new box
 
