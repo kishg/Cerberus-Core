@@ -98,7 +98,6 @@ PID_RUNTIME = "011F"
 # against the upper-cased reply, so partial lines still match.
 _NON_DATA = (
     "NO DATA",          # ignition off, or PID unsupported — the common case
-    "SEARCHING",        # protocol negotiation, first request after connect
     "STOPPED",
     "UNABLE TO CONNECT",
     "CAN ERROR",
@@ -170,7 +169,11 @@ def payload_bytes(pid: str, raw: str) -> list[int] | None:
     """
     if not raw:
         return None
-    upper = raw.upper()
+    # "SEARCHING..." prefixes the first reply after ATSP0 while the adapter
+    # finds the protocol, and the real answer follows it on the next lines
+    # (seen on the OBDLink CX, 2026-11-01). Drop it rather than discard the
+    # reply; alone, it leaves nothing and still reads as no data.
+    upper = raw.upper().replace("SEARCHING...", "").replace("SEARCHING", "")
     if any(marker in upper for marker in _NON_DATA):
         return None
 
@@ -422,19 +425,21 @@ STANDARD_CATALOG: tuple[RequestSpec, ...] = (
 def decode_supported(base: str, raw: str) -> set[str]:
     """Decode a supported-PIDs bitmap reply (0100, 0120, ...).
 
-    Four bytes, MSB first; bit n set means PID base+1+n is supported. Only the
-    first four bytes are read, because a second ECU answering the broadcast
-    appends its own bitmap to the same line.
+    Four bytes, MSB first; bit n set means PID base+1+n is supported. Every
+    ECU that answers the 7DF broadcast sends its own line, and the union is
+    what a broadcast poll can get: this van has four (engine, transmission and
+    two others), and only the engine's bitmap lists throttle and run time.
     """
-    b = payload_bytes(base, raw)
-    if b is None or len(b) < 4:
-        return set()
     start = int(base[2:], 16)
     out: set[str] = set()
-    bits = (b[0] << 24) | (b[1] << 16) | (b[2] << 8) | b[3]
-    for n in range(32):
-        if bits & (1 << (31 - n)):
-            out.add(f"01{start + 1 + n:02X}")
+    for line in re.split(r"[\r\n]+", raw or ""):
+        b = payload_bytes(base, line)
+        if b is None or len(b) < 4:
+            continue
+        bits = (b[0] << 24) | (b[1] << 16) | (b[2] << 8) | b[3]
+        for n in range(32):
+            if bits & (1 << (31 - n)):
+                out.add(f"01{start + 1 + n:02X}")
     return out
 
 
