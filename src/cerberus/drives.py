@@ -54,6 +54,12 @@ from pathlib import Path
 from .db import Db
 from .location import day_start, local
 from .events import Event, Severity, make
+# The analysis these share with solar_path and learn lives in baseline;
+# re-exported here so drives.<name> keeps working.
+from .baseline import (  # noqa: F401
+    DEFAULT_EPOCHS, MIN_BASELINE, SHORE_INPUT_W, Z_FLAG, _integrate, _median, _slope,
+    electrical_series, epoch_start, robust_z,
+)
 
 log = logging.getLogger(__name__)
 
@@ -66,7 +72,6 @@ ENGINE_CHARGE_A = 200.0      # this rig: stock alternator, 140-220 A peaks
 CHARGE_ON_FRAC, CHARGE_ON_FLOOR_A = 0.10, 5.0
 DRIVE_PEAK_FRAC = 0.50
 STEP_FRAC = 0.20
-SHORE_INPUT_W = 50.0         # AC input above this while shore-connected = charger
 MERGE_GAP_S = 600            # gaps up to this inside one drive (stops, Mac hiccups)
 MIN_DRIVE_S = 180
 OBD_GAP_S = 300              # RPM silence that ends an OBD drive
@@ -74,8 +79,6 @@ SETTLE_S = 900               # a drive is only final this long after it ended
 SAMPLE_S = 30                # the collector's battery_samples cadence
 
 # --- baseline ---------------------------------------------------------------
-MIN_BASELINE = 8
-Z_FLAG = 3.5
 MIN_COVERAGE_PCT = 70.0      # drives with more missing data stay out of baselines
 
 # --- absolute limits (known-bad on this rig) ---------------------------------
@@ -114,11 +117,6 @@ SOC_DRIFT_MAX_V = 14.2
 # soc_drift_pct is skipped rather than computed against a guess. (This rig's
 # 930 Ah, 3 x 310, is in config.yaml.)
 
-# Hardware changes that make earlier drives incomparable. Drives before the
-# latest epoch at or before a drive's start are excluded from its baseline.
-# Per van, so none by default; set them in drives.baseline_epochs (this rig's
-# 2026-09-19 DC rewire lives there).
-DEFAULT_EPOCHS: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -193,41 +191,6 @@ class Drive:
 # Segmentation
 # ---------------------------------------------------------------------------
 
-def electrical_series(db: Db, since: int, until: int,
-                      pack_count: int = 1) -> list[tuple]:
-    """(ts, bank_a, bank_v, soc, solar_a, alt_a, shore_charging) per sample.
-
-    Only timestamps where every pack reported, because battery_samples is per
-    pack and a partial row would understate bank current (by a third, on this
-    rig's three packs).
-    """
-    rows = db.conn.execute(
-        """
-        WITH b AS (
-          SELECT ts, SUM(current) i, AVG(voltage) v, AVG(soc) soc, COUNT(*) n
-          FROM battery_samples
-          WHERE source = 'mqtt' AND ts BETWEEN ? AND ?
-          GROUP BY ts
-        )
-        SELECT b.ts, b.i, b.v, b.soc, s.charge_current, a.input_w, a.shore_connected
-        FROM b
-        LEFT JOIN solar_samples s ON s.ts = b.ts
-        LEFT JOIN ac_samples a ON a.ts = b.ts
-        WHERE b.n = ?
-        ORDER BY b.ts
-        """,
-        (since, until, pack_count),
-    ).fetchall()
-    out = []
-    for ts, i, v, soc, solar, input_w, shore in rows:
-        if i is None:
-            continue
-        solar = solar or 0.0
-        shore_charging = bool(shore == 1 and (input_w or 0) > SHORE_INPUT_W)
-        out.append((ts, i, v, soc, solar, i - solar, shore_charging))
-    return out
-
-
 def electrical_sessions(series: list[tuple],
                         settings: Settings = DEFAULT_SETTINGS) -> list[tuple[int, int]]:
     """Alternator charge sessions in a series from electrical_series."""
@@ -278,30 +241,6 @@ def find_drives(db: Db, since: int, until: int,
 # ---------------------------------------------------------------------------
 # Metrics
 # ---------------------------------------------------------------------------
-
-def _median(xs: list[float]) -> float | None:
-    return statistics.median(xs) if xs else None
-
-
-def _slope(xs: list[float], ys: list[float]) -> float | None:
-    if len(xs) < 10:
-        return None
-    mx, my = statistics.fmean(xs), statistics.fmean(ys)
-    sxx = sum((x - mx) ** 2 for x in xs)
-    if sxx == 0:
-        return None
-    return sum((x - mx) * (y - my) for x, y in zip(xs, ys)) / sxx
-
-
-def _integrate(points: list[tuple[int, float]], max_dt: int = 60) -> float:
-    """Left Riemann sum in value·hours, not bridging gaps longer than max_dt."""
-    total = 0.0
-    for (t0, v0), (t1, _v1) in zip(points, points[1:]):
-        dt = t1 - t0
-        if 0 < dt <= max_dt:
-            total += v0 * dt / 3600.0
-    return total
-
 
 def _r(x, nd=2):
     return None if x is None else round(x, nd)
@@ -511,12 +450,6 @@ def _obd_metrics(db: Db, d: Drive, m: dict, series: list[tuple],
 # Baseline
 # ---------------------------------------------------------------------------
 
-def epoch_start(before_ts: int, epochs=DEFAULT_EPOCHS, tz: tzinfo | None = None) -> int:
-    """Start of the hardware epoch containing before_ts (0 if none)."""
-    starts = [day_start(e, tz) for e in epochs]
-    return max((t for t in starts if t <= before_ts), default=0)
-
-
 def prior_drives(db: Db, before_ts: int, epochs=DEFAULT_EPOCHS,
                  tz: tzinfo | None = None) -> list[dict]:
     """Metrics of earlier drives in the same hardware epoch."""
@@ -531,15 +464,6 @@ def prior_drives(db: Db, before_ts: int, epochs=DEFAULT_EPOCHS,
         except ValueError:
             continue
     return out
-
-
-def robust_z(x: float, history: list[float]) -> tuple[float, float, float]:
-    """(z, median, scaled MAD). A zero MAD is floored at 2% of the median so a
-    perfectly flat history does not turn every tiny change into infinity."""
-    med = statistics.median(history)
-    mad = statistics.median(abs(h - med) for h in history) * 1.4826
-    mad = max(mad, abs(med) * 0.02, 1e-9)
-    return (x - med) / mad, med, mad
 
 
 def evaluate(d: Drive, history: list[dict],

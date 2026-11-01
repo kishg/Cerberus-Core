@@ -201,7 +201,7 @@ class DrivesConfig:
     # Where per-drive markdown reports go. Relative paths resolve against the
     # database's directory, so the soak layout puts them in soak/data/reports.
     report_dir: str
-    # YYYY-MM-DD dates of hardware changes; see drives.DEFAULT_EPOCHS.
+    # YYYY-MM-DD dates of hardware changes; see baseline.DEFAULT_EPOCHS.
     baseline_epochs: tuple[str, ...]
     # Joint-probe instance and limits; see drives.Settings.
     settings: drives_mod.Settings = drives_mod.DEFAULT_SETTINGS

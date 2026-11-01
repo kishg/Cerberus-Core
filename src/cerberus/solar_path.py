@@ -48,7 +48,7 @@ import time
 from dataclasses import dataclass
 from datetime import date, timedelta, tzinfo
 
-from . import drives
+from . import baseline, drives
 from .db import Db
 from .location import day_start, local, next_day
 from .events import Event, Severity, make
@@ -119,7 +119,7 @@ def compute_day(db: Db, day: str, settings: Settings = DEFAULT_SETTINGS) -> dict
     ).fetchall()
     if not solar or not any((r[2] or 0) > 0 for r in solar):
         return None
-    elec = {r[0]: r for r in drives.electrical_series(db, start, end, settings.pack_count)}
+    elec = {r[0]: r for r in baseline.electrical_series(db, start, end, settings.pack_count)}
 
     m: dict = {
         "peak_solar_a": round(max(r[2] or 0 for r in solar), 1),
@@ -172,7 +172,7 @@ def compute_day(db: Db, day: str, settings: Settings = DEFAULT_SETTINGS) -> dict
         m["path_amps_median"] = round(statistics.median(i for i, _ in pairs), 1)
         amps = [i for i, _ in pairs]
         if max(amps) - min(amps) >= SLOPE_MIN_SPREAD_A:
-            sl = drives._slope(amps, [dv for _, dv in pairs])
+            sl = baseline._slope(amps, [dv for _, dv in pairs])
             if sl is not None:
                 m["path_mohm_slope"] = round(sl * 1000, 1)
     return {k: v for k, v in m.items() if v is not None}
@@ -193,10 +193,10 @@ def evaluate(m: dict, history: list[dict],
     for name in BASELINE_METRICS:
         x = m.get(name)
         hist = [h[name] for h in history if h.get(name) is not None]
-        if x is None or len(hist) < drives.MIN_BASELINE:
+        if x is None or len(hist) < baseline.MIN_BASELINE:
             continue
-        z, med, _ = drives.robust_z(float(x), hist)
-        if abs(z) >= drives.Z_FLAG:
+        z, med, _ = baseline.robust_z(float(x), hist)
+        if abs(z) >= baseline.Z_FLAG:
             flags.append({"kind": "anomaly", "metric": name, "value": x,
                           "baseline": round(med, 1), "z": round(z, 1),
                           "n": len(hist)})
@@ -229,10 +229,10 @@ def summary_line(day: str, m: dict, flags: list[dict]) -> str:
     return f"{head} — " + "; ".join(bits)
 
 
-def prior_days(db: Db, day: str, epochs=drives.DEFAULT_EPOCHS,
+def prior_days(db: Db, day: str, epochs=baseline.DEFAULT_EPOCHS,
                tz: tzinfo | None = None) -> list[dict]:
     start, _ = _day_bounds(day, tz)
-    since = local(drives.epoch_start(start, epochs, tz), tz).strftime("%Y-%m-%d")
+    since = local(baseline.epoch_start(start, epochs, tz), tz).strftime("%Y-%m-%d")
     return [
         json.loads(r[0]) for r in db.conn.execute(
             "SELECT metrics FROM solar_days WHERE day >= ? AND day < ? ORDER BY day",
@@ -241,7 +241,7 @@ def prior_days(db: Db, day: str, epochs=drives.DEFAULT_EPOCHS,
     ]
 
 
-def record_day(db: Db, day: str, epochs=drives.DEFAULT_EPOCHS,
+def record_day(db: Db, day: str, epochs=baseline.DEFAULT_EPOCHS,
                settings: Settings = DEFAULT_SETTINGS) -> tuple[dict, list] | None:
     m = compute_day(db, day, settings)
     if m is None:
@@ -274,7 +274,7 @@ def _days_to_process(db: Db, now: int, through: str | None,
     return out
 
 
-def process(db: Db, now: int, epochs=drives.DEFAULT_EPOCHS,
+def process(db: Db, now: int, epochs=baseline.DEFAULT_EPOCHS,
             settings: Settings = DEFAULT_SETTINGS) -> list[Event]:
     """Record every finished day not yet recorded.
 
