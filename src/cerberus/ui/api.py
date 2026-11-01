@@ -105,7 +105,7 @@ def now_view(conn: sqlite3.Connection, ctx: Context, now: int | None = None,
         "time_to_empty_h": None,
         "cabin": None,
         "outside": None,
-        "vehicle": vehicle_view(conn, now),
+
         # Open findings only, briefly; /api/findings has the full cards.
         # Ones the owner marked known are counted, not listed.
         "findings": [
@@ -184,6 +184,61 @@ def vehicle_view(conn: sqlite3.Connection, now: int) -> dict | None:
     if r and "fuel" in out:
         out["fuel"]["range_mi"] = round(r[1])
     return out or None
+
+
+# Findings about the chassis rather than the house system: shown on the
+# Chassis tab as well as Findings.
+CHASSIS_FINDINGS = ("engine_faults", "def_low", "starter_battery", "tyre_pressure",
+                    "vehicle_fluids")
+# starter_battery_state (cerberus.vehicle): Mercedes coding.
+STARTER_LABEL = {0: "good", 4: "good to fair", 1: "fair", 3: "weak", 2: "poor"}
+
+
+def chassis_view(conn: sqlite3.Connection, ctx: Context, now: int | None = None,
+                 notes: list[dict] | None = None) -> dict:
+    """The Chassis tab: engine, chassis battery, fuel, DEF and odometer
+    (vehicle_view), plus what an import adds (tyres, starter battery, fluid
+    warnings, lock), the chassis findings and the last few drives."""
+    now = int(time.time()) if now is None else now
+    out: dict = {"now": now, "tz": ctx.tz_name, "vehicle": vehicle_view(conn, now)}
+
+    def latest(name):
+        r = _latest_vehicle(conn, name)
+        return None if r is None else {"ts": r[0], "value": r[1]}
+
+    tyres = {pos: latest(f"tire_{pos}_psi") for pos in ("fl", "fr", "rl", "rr")}
+    out["tyres"] = tyres if any(tyres.values()) else None
+    if out["tyres"] is not None:
+        w = latest("tire_warning")
+        out["tyres"]["warning"] = None if w is None else bool(w["value"])
+    sb = latest("starter_battery_state")
+    out["starter_battery"] = None if sb is None else {
+        "ts": sb["ts"], "state": int(sb["value"]),
+        "label": STARTER_LABEL.get(int(sb["value"]), "unknown")}
+    warnings = {}
+    for name in ("coolant_low", "brake_fluid_low", "washer_low", "engine_light"):
+        r = latest(name)
+        if r is not None:
+            warnings[name] = {"ts": r["ts"], "on": bool(r["value"])}
+    out["warnings"] = warnings or None
+    lock = latest("lock_state")
+    out["lock_state"] = lock
+    found = findings_mod.derive(conn, ctx.findings_settings(), now, notes)
+    out["findings"] = [{k: f.as_dict()[k] for k in ("key", "severity", "status", "title", "first_seen")}
+                       for f in found if f.key in CHASSIS_FINDINGS]
+    drives = []
+    for start, end, source, raw in conn.execute(
+            "SELECT start_ts, end_ts, source, metrics FROM drives ORDER BY start_ts DESC LIMIT 8"):
+        try:
+            m = json.loads(raw) if raw else {}
+        except ValueError:
+            m = {}
+        drives.append({"start_ts": start, "end_ts": end, "source": source,
+                       "miles": m.get("odometer_driven_mi", m.get("distance_mi")),
+                       "alt_ah": m.get("alt_ah"), "peak_bank_v": m.get("peak_bank_v"),
+                       "coolant_max_c": m.get("coolant_max_c")})
+    out["drives"] = drives
+    return out
 
 
 def findings_view(conn: sqlite3.Connection, ctx: Context, now: int | None = None,

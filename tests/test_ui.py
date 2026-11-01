@@ -191,6 +191,7 @@ def test_server_serves_the_app_and_its_api(server):
     assert code == 200 and json.loads(body)["collector_up"] is True
     assert json.loads(_get(server + "/api/history?range=7d")[2])["range"] == "7d"
     assert "findings" in json.loads(_get(server + "/api/findings")[2])
+    assert "tyres" in json.loads(_get(server + "/api/v1/chassis")[2])
     assert json.loads(_get(server + "/api/about")[2])["license"] == "AGPL-3.0-or-later"
     h = json.loads(_get(server + "/api/health")[2])
     assert {"sources", "coverage", "episodes", "missing_s"} <= set(h)
@@ -242,7 +243,7 @@ def _obd(db, ts, name, value):
 
 
 def test_no_vehicle_section_without_acr_or_obd(db):
-    assert api.now_view(db.conn, api.Context(), NOW)["vehicle"] is None
+    assert api.chassis_view(db.conn, api.Context(), NOW)["vehicle"] is None
 
 
 def test_vehicle_idling_with_chassis_fuel_and_def(db):
@@ -252,7 +253,7 @@ def test_vehicle_idling_with_chassis_fuel_and_def(db):
     _obd(db, NOW - 60, "fuel_level_pct", 64.7)
     _obd(db, NOW - 60, "def_level_pct", 78.4)
     _obd(db, NOW - 60, "odometer_mi", 36960.4)
-    v = api.now_view(db.conn, api.Context(), NOW)["vehicle"]
+    v = api.chassis_view(db.conn, api.Context(), NOW)["vehicle"]
     assert v["chassis"] == {"ts": NOW - 5, "voltage": 14.21, "linked": True}
     assert v["engine"]["state"] == "idling" and v["engine"]["rpm"] == 768.0
     assert v["fuel"]["pct"] == 65 and v["def"]["pct"] == 78
@@ -264,7 +265,7 @@ def test_vehicle_engine_off_keeps_last_fuel_and_drops_stale_chassis(db):
     _obd(db, NOW - 1800, "rpm", 1500.0)
     _obd(db, NOW - 1800, "speed_mph", 45.0)
     _obd(db, NOW - 1800, "fuel_level_pct", 50.0)
-    v = api.now_view(db.conn, api.Context(), NOW)["vehicle"]
+    v = api.chassis_view(db.conn, api.Context(), NOW)["vehicle"]
     assert "chassis" not in v
     assert v["engine"] == {"ts": NOW - 1800, "state": "off", "rpm": None, "speed_mph": None}
     assert v["fuel"] == {"ts": NOW - 1800, "pct": 50, "source": "obd"}
@@ -273,4 +274,31 @@ def test_vehicle_engine_off_keeps_last_fuel_and_drops_stale_chassis(db):
 def test_vehicle_driving(db):
     _obd(db, NOW - 1, "rpm", 1800.0)
     _obd(db, NOW - 1, "speed_mph", 52.0)
-    assert api.now_view(db.conn, api.Context(), NOW)["vehicle"]["engine"]["state"] == "driving"
+    assert api.chassis_view(db.conn, api.Context(), NOW)["vehicle"]["engine"]["state"] == "driving"
+
+
+
+def test_now_has_no_vehicle_section_any_more(db):
+    """Chassis data moved to its own tab (2026-11-01)."""
+    assert "vehicle" not in api.now_view(db.conn, api.Context(), NOW)
+
+
+def test_chassis_view_with_import_findings_and_drives(db):
+    db.insert_vehicle_samples(NOW - 600, "mercedes_me", {
+        "tire_fl_psi": 55, "tire_fr_psi": 55, "tire_rl_psi": 65, "tire_rr_psi": 66,
+        "tire_warning": 0, "starter_battery_state": 3, "coolant_low": 0, "lock_state": 2})
+    db.conn.execute("INSERT INTO drives (start_ts, end_ts, source, metrics, flags, created_ts) "
+                    "VALUES (?, ?, 'obd', ?, '[]', 0)",
+                    (NOW - 7200, NOW - 4800, '{"odometer_driven_mi": 31.2, "alt_ah": 62, "coolant_max_c": 88}'))
+    c = api.chassis_view(db.conn, api.Context(), NOW)
+    assert c["tyres"]["rr"]["value"] == 66 and c["tyres"]["warning"] is False
+    assert c["starter_battery"]["label"] == "weak"
+    assert c["warnings"]["coolant_low"]["on"] is False
+    assert c["lock_state"]["value"] == 2
+    assert [f["key"] for f in c["findings"]] == ["starter_battery"]
+    assert c["drives"][0]["miles"] == 31.2 and c["drives"][0]["coolant_max_c"] == 88
+
+
+def test_chassis_view_empty_van(db):
+    c = api.chassis_view(db.conn, api.Context(), NOW)
+    assert c["vehicle"] is None and c["tyres"] is None and c["drives"] == []

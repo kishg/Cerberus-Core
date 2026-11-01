@@ -34,6 +34,7 @@
     </header>
     <nav>
       <a href="#now" data-view="now">Now</a>
+      <a href="#chassis" data-view="chassis">Chassis</a>
       <a href="#findings" data-view="findings">Findings</a>
       <a href="#history" data-view="history">History</a>
       <a href="#health" data-view="health">Health</a>
@@ -54,6 +55,24 @@
         <h2>Findings</h2>
         <ul class="events" id="open-findings"></ul>
       </section>
+    </main>
+
+    <main id="view-chassis" hidden>
+      <section class="tiles" id="chassis-tiles"></section>
+      <section class="card" id="chassis-checks-card" style="margin-top:12px">
+        <h2>Checks</h2>
+        <ul class="events" id="chassis-checks"></ul>
+      </section>
+      <section class="card" id="chassis-tyres-card">
+        <h2>Tyres</h2>
+        <p class="sub" id="chassis-tyres-sub"></p>
+        <table id="chassis-tyres"><thead><tr><th>Front left</th><th>Front right</th><th>Rear left</th><th>Rear right</th></tr></thead><tbody></tbody></table>
+      </section>
+      <section class="card">
+        <h2>Recent drives</h2>
+        <table id="chassis-drives"><thead><tr><th>When</th><th>Time</th><th>Miles</th><th>Charge in</th><th>Peak V</th><th>Coolant</th></tr></thead><tbody></tbody></table>
+      </section>
+      <p class="sub" id="chassis-empty" hidden>No chassis data yet. It comes from an OBD adapter, the Lithionics ACR, or values imported from Home Assistant (ha_mqtt.import_topics).</p>
     </main>
 
     <main id="view-findings" hidden>

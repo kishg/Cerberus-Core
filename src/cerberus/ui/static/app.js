@@ -139,22 +139,6 @@ function renderNow(d) {
     `${ac.shore_connected ? "Shore power" : "Inverter"}${ac.inverter_state ? " · " + ac.inverter_state : ""}`));
   if (d.cabin) tiles.append(tile("Cabin", `${fmtNum(d.cabin.air_temp_f, 0)}°F`, `${fmtNum(d.cabin.humidity_pct, 0)}% humidity · ${ago(d.cabin.ts, d.now)}`));
   if (d.outside) tiles.append(tile("Outside", `${fmtNum(d.outside.air_temp_f, 0)}°F`, `${fmtNum(d.outside.humidity_pct, 0)}% humidity · forecast`));
-  const v = d.vehicle;
-  if (v) {
-    const eng = v.engine;
-    if (eng) {
-      const label = { off: "Off", idling: "Idling", driving: "Driving" }[eng.state] || "–";
-      tiles.append(tile("Engine", label, eng.state === "off" ? `Last ran ${ago(eng.ts, d.now)}`
-        : eng.state === "driving" ? `${fmtNum(eng.speed_mph, 0)} mph · ${fmtNum(eng.rpm, 0)} rpm` : `${fmtNum(eng.rpm, 0)} rpm`));
-    }
-    if (v.chassis) tiles.append(tile("Chassis battery", `${fmtNum(v.chassis.voltage, 2)} V`,
-      v.chassis.linked ? "Joined to the house bank by the ACR" : "Separate from the house bank"));
-    const asOf = (x) => (eng && eng.state !== "off" ? "Live" : `As of ${ago(x.ts, d.now)}`);
-    if (v.fuel) tiles.append(tile("Fuel", `${fmtNum(v.fuel.pct, 0)}%`,
-      asOf(v.fuel) + (v.fuel.range_mi != null ? ` · ${fmtNum(v.fuel.range_mi, 0)} mi range` : "")));
-    if (v.def) tiles.append(tile("DEF (AdBlue)", `${fmtNum(v.def.pct, 0)}%`, asOf(v.def)));
-    if (v.odometer) tiles.append(tile("Odometer", `${fmtNum(v.odometer.mi, 0)} mi`, asOf(v.odometer)));
-  }
 
   const tbody = document.querySelector("#packs tbody");
   tbody.replaceChildren();
@@ -186,6 +170,85 @@ function renderNow(d) {
       el("div", { class: "when" }, f.first_seen ? `since ${dayOnly(f.first_seen)}` : ""));
     list.append(li);
   }
+}
+
+// ---------------------------------------------------------------- Chassis
+
+const CHECK_LABEL = { coolant_low: "Coolant level", brake_fluid_low: "Brake fluid",
+  washer_low: "Washer fluid", engine_light: "Engine light" };
+// Lock status code (Mercedes doorlockstatusvehicle).
+const LOCK_LABEL = { 0: "Unlocked", 1: "Locked inside", 2: "Locked", 3: "Partly unlocked" };
+
+function renderChassis(d) {
+  state.tz = d.tz || undefined;
+  const v = d.vehicle || {}, tiles = document.getElementById("chassis-tiles");
+  tiles.replaceChildren();
+  const eng = v.engine;
+  const asOf = (x) => (eng && eng.state !== "off" ? "Live" : `As of ${ago(x.ts, d.now)}`);
+  if (eng) {
+    const label = { off: "Off", idling: "Idling", driving: "Driving" }[eng.state] || "–";
+    tiles.append(tile("Engine", label, eng.state === "off" ? `Last ran ${ago(eng.ts, d.now)}`
+      : eng.state === "driving" ? `${fmtNum(eng.speed_mph, 0)} mph · ${fmtNum(eng.rpm, 0)} rpm` : `${fmtNum(eng.rpm, 0)} rpm`));
+  }
+  if (v.chassis || d.starter_battery) {
+    const sb = d.starter_battery;
+    tiles.append(tile("Chassis battery", v.chassis ? `${fmtNum(v.chassis.voltage, 2)} V` : "–",
+      [v.chassis ? (v.chassis.linked ? "Joined to the house bank" : "Separate from the house bank") : null,
+       sb ? `Van's check: ${sb.label}` : null].filter(Boolean).join(" · ")));
+  }
+  if (v.fuel) tiles.append(tile("Fuel", `${fmtNum(v.fuel.pct, 0)}%`,
+    asOf(v.fuel) + (v.fuel.range_mi != null ? ` · ${fmtNum(v.fuel.range_mi, 0)} mi range` : "")));
+  if (v.def) tiles.append(tile("DEF (AdBlue)", `${fmtNum(v.def.pct, 0)}%`, asOf(v.def)));
+  if (v.odometer) tiles.append(tile("Odometer", `${fmtNum(v.odometer.mi, 0)} mi`, asOf(v.odometer)));
+  if (d.lock_state) tiles.append(tile("Doors", LOCK_LABEL[d.lock_state.value] || "–", `As of ${ago(d.lock_state.ts, d.now)}`));
+
+  const checks = document.getElementById("chassis-checks");
+  checks.replaceChildren();
+  for (const f of d.findings) {
+    const li = el("li"), what = el("div", { class: "what" });
+    what.append(el("a", { href: "#findings" }, f.title));
+    li.append(statusIcon(f.status === "resolved" ? "good" : SEV[f.severity].icon), what,
+      el("div", { class: "when" }, f.first_seen ? `since ${dayOnly(f.first_seen)}` : ""));
+    checks.append(li);
+  }
+  for (const [k, w] of Object.entries(d.warnings || {})) {
+    const li = el("li");
+    li.append(statusIcon(w.on ? "warning" : "good"),
+      el("div", { class: "what" }, `${CHECK_LABEL[k] || k}: ${w.on ? "warning" : "OK"}`),
+      el("div", { class: "when" }, ago(w.ts, d.now)));
+    checks.append(li);
+  }
+  document.getElementById("chassis-checks-card").hidden = !checks.children.length;
+
+  const ty = d.tyres, tb = document.querySelector("#chassis-tyres tbody");
+  tb.replaceChildren();
+  document.getElementById("chassis-tyres-card").hidden = !ty;
+  if (ty) {
+    const tr = el("tr");
+    for (const pos of ["fl", "fr", "rl", "rr"]) tr.append(el("td", {}, ty[pos] ? `${fmtNum(ty[pos].value, 0)} psi` : "–"));
+    tb.append(tr);
+    const newest = Math.max(...["fl", "fr", "rl", "rr"].map((p) => (ty[p] ? ty[p].ts : 0)));
+    document.getElementById("chassis-tyres-sub").textContent =
+      `${ty.warning ? "Tyre-pressure warning on. " : ""}Last reported ${ago(newest, d.now)} (the van sends pressures after driving).`;
+  }
+
+  const db = document.querySelector("#chassis-drives tbody");
+  db.replaceChildren();
+  for (const r of d.drives) {
+    const tr = el("tr");
+    tr.append(el("td", {}, `${dayOnly(r.start_ts)} ${hhmm(r.start_ts)}`),
+      el("td", {}, `${fmtNum((r.end_ts - r.start_ts) / 60, 0)} min`),
+      el("td", {}, r.miles == null ? "–" : fmtNum(r.miles, 0)),
+      el("td", {}, r.alt_ah == null ? "–" : `${fmtNum(r.alt_ah, 0)} Ah`),
+      el("td", {}, r.peak_bank_v == null ? "–" : `${fmtNum(r.peak_bank_v, 2)} V`),
+      el("td", {}, r.coolant_max_c == null ? "–" : `${fmtNum(r.coolant_max_c, 0)}°C`));
+    db.append(tr);
+  }
+  document.getElementById("chassis-empty").hidden = !!(tiles.children.length || d.drives.length);
+}
+
+async function loadChassis() {
+  try { renderChassis(await getJSON("/chassis")); } catch (err) { console.error(err); }
 }
 
 // ---------------------------------------------------------------- Findings
@@ -1357,6 +1420,7 @@ function setView(view) {
   });
   clearInterval(state.histTimer);
   if (view === "history") { loadHistory(); state.histTimer = setInterval(loadHistory, HISTORY_POLL_MS); }
+  if (view === "chassis") { loadChassis(); state.histTimer = setInterval(loadChassis, NOW_POLL_MS); }
   if (view === "findings") { loadFindings(); state.histTimer = setInterval(loadFindings, HISTORY_POLL_MS); }
   if (view === "health") { loadHealth(); state.histTimer = setInterval(loadHealth, HISTORY_POLL_MS); }
   if (view === "settings") loadSettings();          // no polling: it would wipe edits
@@ -1370,7 +1434,7 @@ document.querySelectorAll(".filters button").forEach((b) => {
     loadHistory();
   });
 });
-const VIEWS = ["now", "findings", "history", "health", "settings"];
+const VIEWS = ["now", "chassis", "findings", "history", "health", "settings"];
 const viewFromHash = () => (VIEWS.includes(location.hash.slice(1)) ? location.hash.slice(1) : "now");
 window.addEventListener("hashchange", () => setView(viewFromHash()));
 let resizeTimer;
