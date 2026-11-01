@@ -249,6 +249,8 @@ def make_handler(app: App):
                 ctx = app.context(conn)
                 if ep == "now":
                     return self._json(200, api.now_view(conn, ctx, notes=self._notes()))
+                if ep == "chassis":
+                    return self._json(200, api.chassis_view(conn, ctx, notes=self._notes()))
                 if ep == "health":
                     return self._json(200, health.health_view(conn, int(time.time()), ctx.tz))
                 if ep == "findings":

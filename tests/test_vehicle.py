@@ -105,7 +105,7 @@ def test_now_takes_the_newer_of_obd_and_import(db):
     db.conn.execute("INSERT INTO obd_samples (ts, ecu, name, raw, value) "
                     "VALUES (?, '7DF', 'fuel_level_pct', '', 70.0)", (NOW - 3 * 3600,))
     _snap(db, NOW - 600)
-    v = api.now_view(db.conn, api.Context(), NOW)["vehicle"]
+    v = api.chassis_view(db.conn, api.Context(), NOW)["vehicle"]
     assert v["fuel"] == {"ts": NOW - 600, "pct": 65, "source": "import", "range_mi": 237}
     assert v["odometer"]["mi"] == 36960 and v["def"]["source"] == "import"
 
