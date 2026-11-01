@@ -232,3 +232,43 @@ def test_load_ui_rejects_a_bad_port(tmp_path):
     p.write_text("ui: {port: 70000}\n")
     with pytest.raises(cfg_mod.ConfigError, match="ui.port"):
         cfg_mod.load_ui(p)
+
+
+# --- vehicle (ACR + OBD) ---------------------------------------------------------
+
+def _obd(db, ts, name, value):
+    db.conn.execute("INSERT INTO obd_samples (ts, ecu, name, raw, value) VALUES (?, '7DF', ?, '', ?)",
+                    (ts, name, value))
+
+
+def test_no_vehicle_section_without_acr_or_obd(db):
+    assert api.now_view(db.conn, api.Context(), NOW)["vehicle"] is None
+
+
+def test_vehicle_idling_with_chassis_fuel_and_def(db):
+    db.insert_acr_sample(ts=NOW - 5, field1=2, chassis_v_cv=1421, house_v_cv=1418, field7=1, raw="")
+    _obd(db, NOW - 2, "rpm", 768.0)
+    _obd(db, NOW - 2, "speed_mph", 0.0)
+    _obd(db, NOW - 60, "fuel_level_pct", 64.7)
+    _obd(db, NOW - 60, "def_level_pct", 78.4)
+    v = api.now_view(db.conn, api.Context(), NOW)["vehicle"]
+    assert v["chassis"] == {"ts": NOW - 5, "voltage": 14.21, "linked": True}
+    assert v["engine"]["state"] == "idling" and v["engine"]["rpm"] == 768.0
+    assert v["fuel"]["pct"] == 65 and v["def"]["pct"] == 78
+
+
+def test_vehicle_engine_off_keeps_last_fuel_and_drops_stale_chassis(db):
+    db.insert_acr_sample(ts=NOW - 3600, field1=0, chassis_v_cv=1290, house_v_cv=1330, field7=0, raw="")
+    _obd(db, NOW - 1800, "rpm", 1500.0)
+    _obd(db, NOW - 1800, "speed_mph", 45.0)
+    _obd(db, NOW - 1800, "fuel_level_pct", 50.0)
+    v = api.now_view(db.conn, api.Context(), NOW)["vehicle"]
+    assert "chassis" not in v
+    assert v["engine"] == {"ts": NOW - 1800, "state": "off", "rpm": None, "speed_mph": None}
+    assert v["fuel"] == {"ts": NOW - 1800, "pct": 50}
+
+
+def test_vehicle_driving(db):
+    _obd(db, NOW - 1, "rpm", 1800.0)
+    _obd(db, NOW - 1, "speed_mph", 52.0)
+    assert api.now_view(db.conn, api.Context(), NOW)["vehicle"]["engine"]["state"] == "driving"

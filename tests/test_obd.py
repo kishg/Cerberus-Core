@@ -637,3 +637,9 @@ def test_session_stores_raw_and_decoded_and_reads_dtcs(monkeypatch):
     assert cmds[i + 1] == "ATCRA7E8" and cmds[i + 2] == "22AAAA"
     assert "ATSH7DF" in cmds[i:] and "ATAR" in cmds[i:]
     assert "04" not in cmds                    # never clears codes
+
+
+def test_def_level_from_the_vans_9b_reply():
+    from cerberus.obd import STANDARD_CATALOG
+    spec = next(s for s in STANDARD_CATALOG if s.name == "def_level_pct")
+    assert round(decode_spec(spec, "419B0E7D38C8\r\r>"), 1) == 78.4    # 2026-11-01

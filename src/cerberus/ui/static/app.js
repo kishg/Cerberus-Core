@@ -139,6 +139,20 @@ function renderNow(d) {
     `${ac.shore_connected ? "Shore power" : "Inverter"}${ac.inverter_state ? " · " + ac.inverter_state : ""}`));
   if (d.cabin) tiles.append(tile("Cabin", `${fmtNum(d.cabin.air_temp_f, 0)}°F`, `${fmtNum(d.cabin.humidity_pct, 0)}% humidity · ${ago(d.cabin.ts, d.now)}`));
   if (d.outside) tiles.append(tile("Outside", `${fmtNum(d.outside.air_temp_f, 0)}°F`, `${fmtNum(d.outside.humidity_pct, 0)}% humidity · forecast`));
+  const v = d.vehicle;
+  if (v) {
+    const eng = v.engine;
+    if (eng) {
+      const label = { off: "Off", idling: "Idling", driving: "Driving" }[eng.state] || "–";
+      tiles.append(tile("Engine", label, eng.state === "off" ? `Last ran ${ago(eng.ts, d.now)}`
+        : eng.state === "driving" ? `${fmtNum(eng.speed_mph, 0)} mph · ${fmtNum(eng.rpm, 0)} rpm` : `${fmtNum(eng.rpm, 0)} rpm`));
+    }
+    if (v.chassis) tiles.append(tile("Chassis battery", `${fmtNum(v.chassis.voltage, 2)} V`,
+      v.chassis.linked ? "Joined to the house bank by the ACR" : "Separate from the house bank"));
+    const asOf = (x) => (eng && eng.state !== "off" ? "Live" : `As of ${ago(x.ts, d.now)}`);
+    if (v.fuel) tiles.append(tile("Fuel", `${fmtNum(v.fuel.pct, 0)}%`, asOf(v.fuel)));
+    if (v.def) tiles.append(tile("DEF (AdBlue)", `${fmtNum(v.def.pct, 0)}%`, asOf(v.def)));
+  }
 
   const tbody = document.querySelector("#packs tbody");
   tbody.replaceChildren();
