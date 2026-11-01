@@ -217,6 +217,10 @@ class HaMqttConfig:
     enabled: bool = False
     host: str = "127.0.0.1"
     port: int = 1883
+    # Topics on the same broker carrying vehicle values to record, each a JSON
+    # snapshot {"ts", "source", "values": {name: number}} (cerberus.vehicle).
+    # Empty: nothing is imported.
+    import_topics: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -812,6 +816,9 @@ user_agent=str(w_raw.get("user_agent", DEFAULT_WEATHER_UA)).strip(),
             enabled=_parse_bool((raw.get("ha_mqtt") or {}).get("enabled", False), "ha_mqtt.enabled"),
             host=str((raw.get("ha_mqtt") or {}).get("host", "127.0.0.1")),
             port=int((raw.get("ha_mqtt") or {}).get("port", 1883)),
+            import_topics=tuple(str(t).strip() for t in
+                                ((raw.get("ha_mqtt") or {}).get("import_topics") or [])
+                                if str(t).strip()),
         ),
         solar_path=_parse_solar_path(raw, system, bank),
         heater=_parse_heater(raw, bank),

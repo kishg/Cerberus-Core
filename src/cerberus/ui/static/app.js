@@ -150,7 +150,8 @@ function renderNow(d) {
     if (v.chassis) tiles.append(tile("Chassis battery", `${fmtNum(v.chassis.voltage, 2)} V`,
       v.chassis.linked ? "Joined to the house bank by the ACR" : "Separate from the house bank"));
     const asOf = (x) => (eng && eng.state !== "off" ? "Live" : `As of ${ago(x.ts, d.now)}`);
-    if (v.fuel) tiles.append(tile("Fuel", `${fmtNum(v.fuel.pct, 0)}%`, asOf(v.fuel)));
+    if (v.fuel) tiles.append(tile("Fuel", `${fmtNum(v.fuel.pct, 0)}%`,
+      asOf(v.fuel) + (v.fuel.range_mi != null ? ` · ${fmtNum(v.fuel.range_mi, 0)} mi range` : "")));
     if (v.def) tiles.append(tile("DEF (AdBlue)", `${fmtNum(v.def.pct, 0)}%`, asOf(v.def)));
     if (v.odometer) tiles.append(tile("Odometer", `${fmtNum(v.odometer.mi, 0)} mi`, asOf(v.odometer)));
   }

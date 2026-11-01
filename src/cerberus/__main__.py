@@ -23,6 +23,7 @@ from . import drives as drives_mod
 from . import heater as heater_mod
 from . import live as live_mod
 from .ha_mqtt import HaBroker, NoBroker
+from . import vehicle as vehicle_mod
 from . import vrm_cloud
 from . import solar_path as solar_path_mod
 from .ac import AcState
@@ -179,6 +180,8 @@ class Cerberus:
             cfg.ha_mqtt.host, cfg.ha_mqtt.port,
             availability_topic=f"{cfg.mqtt.publish_namespace}/availability",
             on_ready=self._on_ha_ready,
+            subscriptions=cfg.ha_mqtt.import_topics,
+            on_message=self._on_ha_import,
         ) if cfg.ha_mqtt.enabled else NoBroker()
         self.publisher = Publisher(
             mqtt=self.ha,
@@ -982,6 +985,18 @@ class Cerberus:
             )
         except Exception:
             log.exception("insert_cabin_sample (govee cloud) failed")
+
+    def _on_ha_import(self, topic: str, payload: bytes) -> None:
+        """A vehicle snapshot from ha_mqtt.import_topics (cerberus.vehicle).
+        Runs on the HA client's thread; Db gives each thread its own
+        connection."""
+        snap = vehicle_mod.parse_snapshot(payload)
+        if snap is None:
+            log.warning("ha import: %s is not a vehicle snapshot; ignored", topic)
+            return
+        ts, source, values = snap
+        n = self.db.insert_vehicle_samples(ts, source, values)
+        log.debug("ha import: %d values from %s (%s)", n, source, topic)
 
     def _obd_tick(self) -> None:
         """Read the latest engine row from SQLite and publish it.

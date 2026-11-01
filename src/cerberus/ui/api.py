@@ -137,10 +137,25 @@ def _latest_obd(conn: sqlite3.Connection, name: str):
         "ORDER BY ts DESC LIMIT 1", (name,)).fetchone()
 
 
+def _latest_vehicle(conn: sqlite3.Connection, name: str):
+    return conn.execute(
+        "SELECT ts, value FROM vehicle_samples WHERE name = ? AND value IS NOT NULL "
+        "ORDER BY ts DESC LIMIT 1", (name,)).fetchone()
+
+
+def _latest_level(conn: sqlite3.Connection, name: str):
+    """(ts, value, source) from whichever is newer: the OBD reader (only while
+    the engine runs) or an imported snapshot (cerberus.vehicle; also parked)."""
+    cands = [(*r, src) for r, src in ((_latest_obd(conn, name), "obd"),
+                                      (_latest_vehicle(conn, name), "import")) if r]
+    return max(cands, key=lambda c: c[0]) if cands else None
+
+
 def vehicle_view(conn: sqlite3.Connection, now: int) -> dict | None:
     """The chassis side: chassis battery voltage (from the ACR, which reads it
-    every few seconds), engine state, fuel, DEF and odometer (from OBD, as of
-    the last time the engine ran). None when the van reports none of it."""
+    every few seconds), engine state from OBD, and fuel, DEF and odometer from
+    OBD or an imported snapshot, whichever is newer. None when the van reports
+    none of it."""
     out: dict = {}
     row = conn.execute(
         "SELECT ts, chassis_v_cv, field7 FROM acr_samples "
@@ -159,12 +174,15 @@ def vehicle_view(conn: sqlite3.Connection, now: int) -> dict | None:
         out["engine"] = {"ts": rpm[0], "state": state, "rpm": rpm[1] if running else None,
                          "speed_mph": speed[1] if running and speed else None}
     for key, name in (("fuel", "fuel_level_pct"), ("def", "def_level_pct")):
-        r = _latest_obd(conn, name)
+        r = _latest_level(conn, name)
         if r:
-            out[key] = {"ts": r[0], "pct": round(r[1], 0)}
-    r = _latest_obd(conn, "odometer_mi")
+            out[key] = {"ts": r[0], "pct": round(r[1], 0), "source": r[2]}
+    r = _latest_level(conn, "odometer_mi")
     if r:
-        out["odometer"] = {"ts": r[0], "mi": round(r[1])}
+        out["odometer"] = {"ts": r[0], "mi": round(r[1]), "source": r[2]}
+    r = _latest_vehicle(conn, "range_mi")
+    if r and "fuel" in out:
+        out["fuel"]["range_mi"] = round(r[1])
     return out or None
 
 
