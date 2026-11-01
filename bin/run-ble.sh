@@ -13,7 +13,10 @@
 # reproduce exactly that failure. KeepAlive is the actual fix.
 set -euo pipefail
 
-HERE="$(cd "$(dirname "$0")/.." && pwd)"
+# The deployment: .env, config.yaml, soak/ and .venv. Defaults to this
+# checkout. Set CERBERUS_HOME to keep a van's own files in a folder of their
+# own and run this checkout's code with them.
+HERE="${CERBERUS_HOME:-$(cd "$(dirname "$0")/.." && pwd)}"
 cd "$HERE"
 
 # Like run-collector.sh: no .env (a box not set up yet) is not an error;

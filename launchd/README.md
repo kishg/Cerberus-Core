@@ -25,6 +25,30 @@ loaded copy, so editing the file alone changes nothing.
 Credentials come from `.env` via `bin/run-collector.sh`, never from the plist —
 a plist in the home directory is far more readable than a 0600 `.env`.
 
+## A deployment folder of its own
+
+By default the launchers use the checkout itself for `.env`, `config.yaml`,
+`soak/` (database and logs) and `.venv`. To keep a van's files apart from the
+code, so that updating the code never touches them, put those in their own
+folder, create its venv from this checkout, and set `CERBERUS_HOME` in each
+plist:
+
+```sh
+python3 -m venv ~/my-van/.venv
+~/my-van/.venv/bin/pip install -e "/path/to/Cerberus-Core[ble]"
+```
+
+```xml
+<key>EnvironmentVariables</key>
+<dict>
+  <key>CERBERUS_HOME</key>
+  <string>/Users/YOU/my-van</string>
+</dict>
+```
+
+Point `ProgramArguments` at this checkout's `bin/run-*.sh`, and
+`WorkingDirectory` and the log paths at the van folder.
+
 ## What this does and does not buy you
 
 It survives **crashes**: `KeepAlive` respawns the process whenever it exits,
