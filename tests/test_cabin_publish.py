@@ -74,3 +74,38 @@ def test_publish_cabin_state_then_goes_unavailable_when_stale():
     p.publish_cabin_state({})
     assert m.topics["cerberus/cabin/cabin/temperature/avail"] == "offline"
     assert m.topics["cerberus/cabin/cabin/humidity/avail"] == "offline"
+
+
+# --- engine: same rule, the last drive's RPM must not linger (2026-11-01) ------
+
+def test_engine_stale_marks_readings_unavailable_and_not_running():
+    m, p = _pub()
+    p.publish_engine_stale()
+    for name in ("rpm", "speed_mph", "coolant_c", "load_pct"):
+        assert m.topics[f"cerberus/engine/{name}/avail"] == "offline"
+    assert m.topics["cerberus/engine/running"] == "off"
+
+
+def test_collector_clears_engine_once_when_rows_stop(monkeypatch):
+    from cerberus.__main__ import Cerberus
+    calls = []
+
+    class Pub:
+        def publish_engine_stale(self):
+            calls.append("stale")
+
+        def publish_engine_state(self, s):
+            calls.append("live")
+
+    rows = iter([None, None, object(), None])
+
+    class DbStub:
+        def latest_engine_sample(self, max_age_seconds):
+            return next(rows)
+
+    c = Cerberus.__new__(Cerberus)
+    c.publisher, c.db, c.last_obd_tick_ts, c._engine_live = Pub(), DbStub(), 0, True
+    for _ in range(4):
+        c.last_obd_tick_ts = 0
+        c._obd_tick()
+    assert calls == ["stale", "live", "stale"]

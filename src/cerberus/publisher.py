@@ -620,6 +620,18 @@ class Publisher:
                 retain=True,
             )
 
+    def publish_engine_stale(self) -> None:
+        """No fresh engine row: the engine stopped (the reader parks and stops
+        writing) or the reader is out of range. Mark every reading unavailable
+        and the engine not running, so HA can't keep showing the last drive's
+        RPM as live (seen 2026-11-01: 771 rpm and running, an hour after the
+        engine stopped). Running goes to off rather than unknown: the reader
+        only stops writing mid-drive if the laptop leaves the van or sleeps."""
+        ns = self.namespace
+        for name in ("rpm", "speed_mph", "coolant_c", "load_pct"):
+            self._publish_gated(f"{ns}/engine/{name}", None)
+        self.mqtt.publish(f"{ns}/engine/running", "off", retain=True)
+
     def publish_ble_state(
         self,
         samples_by_pack: "dict[int, BlePackSample]",
