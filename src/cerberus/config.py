@@ -230,6 +230,12 @@ class BankConfig:
     capacity_ah: float | None = None
     # Derived, not set: battery_samples rows per whole-bank sample.
     pack_count: int = 1
+    # Net charge current (bank current minus solar) above which another
+    # charger is on: the engine, shore or a generator. Used by the solar-path
+    # check, the solar-open guard and the UI's "is it moving" test. Unset, it
+    # is derived as today from drives.engine_charge_a: max(5, 10% of it), so
+    # 20 A at 200 A. Drive detection keeps its own engine-based threshold.
+    charge_on_a: float = 20.0
 
 
 @dataclass(frozen=True)
@@ -361,9 +367,23 @@ def _parse_bank(raw: dict) -> BankConfig:
     if cap is not None and cap <= 0:
         raise ConfigError(f"bank.capacity_ah must be positive (got {cap})")
     pack_ids = set((raw.get("packs") or {}).values())
+    charge_on = b.get("charge_on_a")
+    if charge_on is None:
+        engine_a = (raw.get("drives") or {}).get("engine_charge_a", drives_mod.ENGINE_CHARGE_A)
+        try:
+            charge_on = max(drives_mod.CHARGE_ON_FLOOR_A, drives_mod.CHARGE_ON_FRAC * float(engine_a))
+        except (TypeError, ValueError):
+            charge_on = BankConfig.charge_on_a      # drives.engine_charge_a reports its own error
+    try:
+        charge_on = float(charge_on)
+    except (TypeError, ValueError):
+        raise ConfigError(f"bank.charge_on_a: {charge_on!r} is not a number") from None
+    if charge_on <= 0:
+        raise ConfigError(f"bank.charge_on_a must be positive (got {charge_on})")
     return BankConfig(
         source=source, monitor_instance=instance, capacity_ah=cap,
         pack_count=1 if source == model_mod.SOURCE_MONITOR else max(1, len(pack_ids)),
+        charge_on_a=charge_on,
     )
 
 
@@ -401,7 +421,7 @@ def _parse_drives(raw: dict, prof: profile_mod.VoltageProfile,
 
 
 def _parse_solar_path(raw: dict, prof: profile_mod.VoltageProfile,
-                      drives: DrivesConfig) -> solar_path_mod.Settings:
+                      bank: BankConfig) -> solar_path_mod.Settings:
     sp = raw.get("solar_path") or {}
     try:
         settings = solar_path_mod.Settings(
@@ -409,8 +429,8 @@ def _parse_solar_path(raw: dict, prof: profile_mod.VoltageProfile,
             path_limit_mohm=float(sp.get("path_limit_mohm", solar_path_mod.ABS_PATH_MOHM)),
             process_after_hour=int(sp.get("process_after_hour",
                                           solar_path_mod.PROCESS_AFTER_HOUR)),
-            pack_count=drives.settings.pack_count,
-            charge_on_a=drives.settings.charge_on_a,
+            pack_count=bank.pack_count,
+            charge_on_a=bank.charge_on_a,
         )
     except (TypeError, ValueError) as err:
         raise ConfigError(f"solar_path: {err}") from None
@@ -452,8 +472,8 @@ class UiConfig:
     timezone: str | None = None
     path_limit_mohm: float = 75.0
     full_remind_days: float = 30.0
-    # Engine current that counts as charging (drives.Settings.charge_on_a): the
-    # UI's "is the van moving" test for phone positions (cerberus.phonefix).
+    # Net charge current that means another charger is on (bank.charge_on_a):
+    # the UI's "is the van moving" test for phone positions (cerberus.phonefix).
     charge_on_a: float = 20.0
     # Where the UI's footer points for its source code (AGPL-3.0 section 13).
     source_url: str = "https://github.com/kishg/Cerberus-Core"
@@ -514,7 +534,7 @@ def load_ui(path: str | Path) -> UiConfig:
     bank = _parse_bank(raw)
     prof = _parse_system(raw)
     drives = _parse_drives(raw, prof, bank)
-    solar_path = _parse_solar_path(raw, prof, drives)
+    solar_path = _parse_solar_path(raw, prof, bank)
     try:
         port = int(u.get("port", 8088))
     except (TypeError, ValueError):
@@ -532,7 +552,7 @@ def load_ui(path: str | Path) -> UiConfig:
         path_limit_mohm=solar_path.path_limit_mohm,
         full_remind_days=float((raw.get("full_charge") or {}).get("remind_after_days", 30)),
         source_url=str(u.get("source_url", UiConfig.source_url)),
-        charge_on_a=drives.settings.charge_on_a,
+        charge_on_a=bank.charge_on_a,
     )
 
 
@@ -542,8 +562,9 @@ def load_analysis(path: str | Path) -> tuple[DrivesConfig, solar_path_mod.Settin
     password."""
     raw = read_raw(path)
     prof = _parse_system(raw)
-    drives = _parse_drives(raw, prof, _parse_bank(raw))
-    return drives, _parse_solar_path(raw, prof, drives), _parse_timezone(raw)
+    bank = _parse_bank(raw)
+    drives = _parse_drives(raw, prof, bank)
+    return drives, _parse_solar_path(raw, prof, bank), _parse_timezone(raw)
 
 
 NOT_SET_UP = "not set up yet: no Cerbo connection (mqtt.portal_id); run setup in the UI"
@@ -771,7 +792,7 @@ user_agent=str(w_raw.get("user_agent", DEFAULT_WEATHER_UA)).strip(),
     for key, value in detectors_mod.solar_open_thresholds(
             solar.array_voc_v, solar.array_w).items():
         thresholds.setdefault(key, value)
-    thresholds.setdefault("solar_open_charging_guard_a", drives.settings.charge_on_a)
+    thresholds.setdefault("solar_open_charging_guard_a", bank.charge_on_a)
     full_charge = dict(raw.get("full_charge") or {})
     full_charge.setdefault("absorption_voltage_min", system.full_min_v)
 
@@ -792,7 +813,7 @@ user_agent=str(w_raw.get("user_agent", DEFAULT_WEATHER_UA)).strip(),
             host=str((raw.get("ha_mqtt") or {}).get("host", "127.0.0.1")),
             port=int((raw.get("ha_mqtt") or {}).get("port", 1883)),
         ),
-        solar_path=_parse_solar_path(raw, system, drives),
+        solar_path=_parse_solar_path(raw, system, bank),
         heater=_parse_heater(raw, bank),
         bank=bank,
         system=system,

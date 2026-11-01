@@ -81,10 +81,10 @@ class Settings:
     absorption_v: float = ABSORPTION_V
     path_limit_mohm: float = ABS_PATH_MOHM
     process_after_hour: int = PROCESS_AFTER_HOUR
-    # Shared with drives.Settings: rows per whole-bank sample, and the net
-    # engine current above which another charger shares the path.
+    # From config's bank section: rows per whole-bank sample, and the net
+    # charge current above which another charger shares the path.
     pack_count: int = 1
-    charge_on_a: float = drives.DEFAULT_SETTINGS.charge_on_a
+    charge_on_a: float = 20.0
     # The van's zone: what a "day" is, and when 21:00 is. None = host local.
     # The collector sets it per tick (config, else the GX's own setting).
     tz: tzinfo | None = None
