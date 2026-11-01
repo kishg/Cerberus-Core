@@ -1,0 +1,10 @@
+{
+  "name": "Cerberus",
+  "short_name": "Cerberus",
+  "description": "Your van's electrical system, read from its own data.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f9f9f7",
+  "theme_color": "#f9f9f7",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}

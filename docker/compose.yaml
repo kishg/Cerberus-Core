@@ -1,0 +1,17 @@
+services:
+  cerberus:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: cerberus
+    restart: unless-stopped
+    environment:
+      CERBERUS_MQTT_PASSWORD: ${CERBERUS_MQTT_PASSWORD}
+      CERBERUS_MQTT_HOST: ${CERBERUS_MQTT_HOST:-}
+    volumes:
+      - cerberus-data:/data
+    # host networking: Cerbo MQTT lives on the LAN; simpler than bridge + port maps
+    network_mode: host
+
+volumes:
+  cerberus-data:

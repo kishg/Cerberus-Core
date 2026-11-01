@@ -1,0 +1,35 @@
+.env
+__pycache__/
+*.pyc
+.venv/
+data/
+*.db
+*.db-wal
+*.db-shm
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+.DS_Store
+
+# soak/ contains live local-broker logs + SQLite DB from the dev soak run.
+# Includes raw Cerbo data and is too big / too device-specific for the repo.
+# Glob, not a list: the BLE sidecar's launchd job writes soak/cerberus-ble.log,
+# which the previous explicit "soak/ble.log" entry did not match (2026-09-19).
+soak/*.log
+soak/cerberus.pid
+soak/data/
+
+# Raw BLE captures from tools/ble_continuous.py and tools/ble_pulse_test.py.
+# Grows indefinitely; analyzed via tools/ble_field_decode.py.
+ble_captures/
+soak/archive/
+
+# Per-box state written by the UI beside config.yaml: settings changed in the
+# UI (setup.yaml), the settings PIN's hash, sessions, the phone position and
+# the owner's notes on findings. None belongs in git.
+setup.yaml
+.cerberus-ui-pin.json
+.cerberus-ui-sessions.json
+.cerberus-phone-fix.json
+.cerberus-notes.json

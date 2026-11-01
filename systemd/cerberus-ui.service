@@ -1,0 +1,24 @@
+[Unit]
+Description=Cerberus UI (read-only web app)
+After=network-online.target cerberus.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+# No EnvironmentFile: the UI needs no secrets in its environment. It reads
+# the collector's database read-only, from the collector's StateDirectory,
+# and writes only beside config.yaml in /etc/cerberus (owned by cerberus):
+# setup.yaml, the PIN hash, the phone position, and during first-run setup
+# config.yaml and the Cerbo password in .env.
+Environment=CERBERUS_SQLITE_PATH=/var/lib/cerberus/cerberus.db
+WorkingDirectory=/opt/cerberus
+ExecStart=/opt/cerberus/.venv/bin/python -m cerberus.ui --config /etc/cerberus/config.yaml
+Restart=always
+RestartSec=5
+User=cerberus
+Group=cerberus
+# Settings > Bluetooth devices > Scan runs from the UI (BlueZ over D-Bus).
+SupplementaryGroups=bluetooth
+
+[Install]
+WantedBy=multi-user.target

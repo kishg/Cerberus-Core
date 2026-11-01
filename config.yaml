@@ -1,0 +1,434 @@
+mqtt:
+  # Ordered failover list. Cerberus rotates to the next host after 3 failed
+  # connect attempts; a >60s healthy session resets the counter and sticks.
+  # CERBERUS_MQTT_HOST env var (comma-separated for list) overrides this.
+  #
+  # The reserved IP leads, not the hostname. mDNS is the more *portable* entry
+  # — it is the only one that works on the van's Starlink, where the Cerbo sits
+  # on a different subnet — but at home it is the less *reliable* one, and this
+  # laptop is at home most of the time. Ordering by where we actually are beats
+  # ordering by which form is more general.
+  hosts:
+    - 192.168.1.60              # DHCP reservation on the home LAN. Reliable
+    #                              here; wrong everywhere else, which costs one
+    #                              rotation (~3 attempts) on arriving in the van.
+    - venus.local                # mDNS. Required on Starlink, unreliable at
+    #                              home: it usually fails to resolve, and on
+    #                              2026-09-17 08:12 it did worse — it answered
+    #                              with 192.168.1.173, the van's June Starlink
+    #                              address, and the watchdog re-targeted onto an
+    #                              unreachable host. A wrong answer is harder to
+    #                              recover from than no answer, so it goes last.
+    # - cerbo.<tailnet>.ts.net   # Tailscale — follows Cerbo across networks
+    # VRM cloud is NOT a host here: see cloud_fallback below.
+  host: venus.local              # legacy single-host form, used if hosts is empty
+  port: 1883
+  portal_id: 0123456789ab
+  # Last resort when neither host works: Victron's VRM cloud MQTT relay
+  # (cerberus.vrm_cloud), read-only, via VRM_TOKEN in .env. Starts after the
+  # LAN link has been down this long; stops when it returns. 2026-10-20: the
+  # Cerbo came home on Starlink while this Mac was on house WiFi — hours
+  # blind with the Cerbo online the whole time.
+  cloud_fallback: true
+  cloud_after_seconds: 180
+  username: 0123456789ab         # password via CERBERUS_MQTT_PASSWORD env
+  keepalive_publish_seconds: 30
+  full_republish_seconds: 300    # empty keepalive (GX resends ~2050 topics) this often; others suppress-republish
+  primary_topic: system/0/Batteries
+  publish_namespace: cerberus
+  ha_discovery_prefix: homeassistant
+system:
+  # The house bank. Every bank-side voltage threshold not set explicitly below
+  # (full-charge detection, crit voltage, MPPT absorption, the drive report's
+  # peak and SoC-drift limits) is derived from these; see src/cerberus/profile.py.
+  # nominal_voltage: 12, 24 or 48. chemistry: lifepo4 (the only one so far).
+  nominal_voltage: 12
+  chemistry: lifepo4
+  # The van's IANA time zone for the nightly solar-path day, its processing
+  # hour and drive-report times. Unset = the GX's own setting (Settings >
+  # General > Time zone on the Cerbo; America/Indianapolis here, the same
+  # clock as the van's region), else this host's. Set it only to override the GX.
+  # timezone: America/New_York
+
+bank:
+  # Where bank figures come from. "packs": one BMS service per pack on the GX,
+  # summed here, mapped by the packs table below (this rig: three Lithionics
+  # CAN-BMSes). "monitor": a single battery monitor (SmartShunt/BMV, or one BMS
+  # for the whole bank) that already measures the bank; the packs table is
+  # then unused. Monitor mode on this rig would be wrong: the GX's active
+  # battery service is pack 1 alone, a third of the bank.
+  source: packs
+  # monitor only: the monitor's battery instance. Omit to use whichever
+  # service the GX marks as the system battery.
+  # monitor_instance: 279
+  # Rated capacity, used only when the BMS / monitor does not report one
+  # (this rig's packs report 310 Ah each since 2026-09-19).
+  capacity_ah: 930
+solar:
+  # The PV array, which sizes the solar-open detector: "sun is up" at 75% of
+  # array_voc_v, "true open circuit" at 92.5%, "the array was just working"
+  # above array_w / 12. Threshold keys set explicitly under thresholds win.
+  # array_voc_v is the WHOLE array's open-circuit voltage as measured in full
+  # sun (one panel's if wired in parallel, times the count if in series) — not
+  # the panel label, which reads 5-10% higher. 300 W of 12 V-class panels in
+  # parallel here; daily peak PV at idle 19.7-20.5 V, 21.9 V on cold mornings.
+  array_voc_v: 20.0
+  array_w: 300
+
+packs:                            # uc-token -> friendly id
+  uc1000001: 1
+  uc1000002: 2
+  uc1000003: 3
+storage:
+  sqlite_path: /data/cerberus.db
+  sample_downsample_seconds: 30
+thresholds:
+  soc_drift_pct: 15
+  soc_drift_sustain_min: 10
+  current_share_excess_pct: 25
+  current_share_min_amps: 10
+  # Added 2026-10-08: a pack must also carry this many amps over its fair
+  # share. Below ~15 A bank the percentage test fired on BMS current
+  # resolution alone (pack 3 at 44% share = ~1.5 A excess).
+  current_share_min_excess_amps: 8
+  temp_high_c: 45
+  # Raised 2 -> 5 on 2026-09-07, ahead of the first winter on this rig.
+  # LiFePO4 charge acceptance is blocked below ~0 C, so a 2 C threshold gave
+  # essentially no lead time: by the time it fired, charging was about to become
+  # unavailable. The detector clears at low_c + 2 C hysteresis, so this warns
+  # below 5 C and clears at 7 C.
+  #
+  # Sized against the Espar, which is left running at 45 F (7.2 C) when parked.
+  # Packs should therefore sit at 7 C or above, and this fires only if the van
+  # is running ~2 C under setpoint — i.e. it detects the furnace losing the
+  # battle rather than the cold itself. That is the intended backstop: pack
+  # heaters draw from the pack, and the NeverDie BMS reserves capacity for them,
+  # so this is a warning about the Espar, not about the batteries.
+  #
+  # Untuned: there is no cold data at all in this dataset (minimum pack
+  # temperature ever recorded is 20 C). If the cabinet runs colder than the
+  # cabin, expect nuisance alerts and raise the Espar setpoint or lower this.
+  temp_low_c: 5
+  low_soc_pct: 15
+  # Any pack below this escalates low_soc to low_soc_crit. 12.3 V sits just
+  # above the Lithionics 12.1 V cutoff; set it from your BMS's own cutoff.
+  low_voltage_crit_v: 12.3
+  # BLE-sourced cell imbalance — observed bank-side spread is typically <30 mV
+  # at rest. 50 mV is a comfortable "something's drifting" gate; 100 mV cross-
+  # pack signals one pack is meaningfully out of line with the others.
+  cell_imbalance_in_pack_mv: 50
+  cell_imbalance_cross_pack_mv: 100
+  cell_imbalance_sustain_seconds: 60
+  # Solar output open — array lit but nothing drawing from it, i.e. the
+  # battery-side path out of the MPPT is broken (the degraded 30 A output
+  # breaker on this rig, which trips at 13-14 A and never auto-resets).
+  # Night reads ~0.4 V on PV, and a trip reads 19.8-20.8 V open-circuit, so
+  # 15 V cleanly separates "no sun" from "sun, no path". The MPPT reports
+  # error_code 0 throughout — it cannot see a fault outside itself.
+  solar_open_pv_voltage_min: 15.0
+  solar_open_sustain_seconds: 90
+  solar_open_full_soc_pct: 97      # bank this full => 0 W is expected, not a fault
+  # Suppress while another source charges the bank: the alternator pins the bus
+  # near 13.5 V at 117-179 A, the MPPT reads a full battery, drops to float at
+  # 0 W, and PV floats to Voc — identical to a trip. Two false alarms on
+  # 2026-08-29 while driving. Sits above the array's ~15 A ceiling so solar's
+  # own output never masks a real open.
+  solar_open_charging_guard_a: 20.0
+  # Telling an open output from an absence of sun (2026-09-18). The rule above
+  # was pv_voltage >= 15 V, on the reasoning that night reads 0.4 V and a trip
+  # reads 19.8-20.8 V. That holds at midday and fails at the edges of the day:
+  # the array's open-circuit voltage ramps through 15-18 V twice daily while it
+  # is still too dim to produce. 50 of the first 61 alerts fired at dawn or
+  # dusk, drifting later through September with the sunrise.
+  #
+  # The real signature of an open output is the array coming OFF LOAD: with
+  # nothing drawing, it relaxes from its maximum-power point up to open circuit
+  # and the voltage RISES. A cloud does the opposite — power and voltage fall
+  # together. So the reference is the voltage the array was last working at,
+  # which already accounts for sun angle, cloud and panel temperature in a way
+  # no fixed number can.
+  solar_open_voc_vmp_ratio: 1.15      # Voc/Vmp for silicon; trip = PV above Vmp x this
+  solar_open_recent_power_w: 25.0     # output above this counts as "under load"
+  solar_open_recent_window_seconds: 600
+  # Fallback when nothing has drawn from the array recently (overnight, or a
+  # cold start) so there is no loaded voltage to compare against. Above every
+  # twilight alert on record (max 17.2 V), below the daily peak Voc (19.7-20.5 V
+  # every day). This is what re-raises a trip left unreset overnight.
+  solar_open_circuit_voltage: 18.5
+  # A legitimate float at 0 W is electrically identical to an open output:
+  # PV relaxed to Voc, no power, no current, error_code 0. Before the
+  # 2026-09-19 rewire this was rare, because 130 mOhm meant float still passed
+  # 1-1.5 A and 10-15 W — above the 1 W trip threshold. At ~50 mOhm a true 0 W
+  # float is reachable, so the case needs an explicit guard.
+  #
+  # Bank voltage does NOT separate the two, which is the obvious idea and is
+  # wrong. Measured across the whole dataset 2026-09-20: float at <=1 W with
+  # SoC<97 sits at 13.152 V mean (13.033-13.267); night-time rest with no
+  # charger at all sits at 13.194 V. They overlap, and must — at 0 W the
+  # controller passes no current, so a healthy float is not holding the bank up
+  # either.
+  #
+  # The controller's own state does separate them. Reaching float requires
+  # completing an absorption cycle, i.e. having actually charged the bank,
+  # which an open output cannot have done. Open, the MPPT reads its own
+  # disconnected terminals as a full battery and reports ABSORPTION — both
+  # confirmed outages did (08-23 10:42 and 08-24 10:15, PV ~20 V, 0.0 W,
+  # state 4). Victron: 0 off, 3 bulk, 4 absorption, 5 float.
+  solar_open_float_state: 5
+full_charge:
+  soc_pct: 99
+  taper_current_a: 5
+  absorption_voltage_min: 14.0
+  remind_after_days: 30
+  rearm_seconds: 300            # condition must stay un-full this long before next rising edge counts
+sync:
+  enabled: false              # off by default — local-first; turn on for off-site backup
+  target_url: ""              # HTTPS POST endpoint accepting JSON {"table": ..., "rows": [...]}
+  auth_token: ""              # optional Bearer token. Override with CERBERUS_SYNC_TOKEN env.
+  batch_size: 500
+  interval_seconds: 60
+  request_timeout_seconds: 10
+ble:
+  # Sidecar BLE collector for per-cell V/T and BMS-side state — runs as a
+  # separate process from the main MQTT loop. See `python -m cerberus.ble`.
+  enabled: true
+  # pack_id -> CoreBluetooth UUID (macOS) or MAC (Linux). These UUIDs are
+  # host-specific: they were discovered on this Mac and last verified against
+  # the packs on 2026-06-15 (see ble_captures/). Rediscover with
+  # `python tools/ble_capture.py scan` if connects fail while in range.
+  #
+  # RANGE: BLE only reaches the packs from inside or beside the van — a scan
+  # from the house returns 0 candidates (verified 2026-08-14). This sidecar is
+  # for in-van capture, not remote monitoring from the house.
+  pack_addresses:
+    1: "00000000-0000-4000-8000-000000000001"   # Li3-000000001
+    2: "00000000-0000-4000-8000-000000000002"   # Li3-000000002
+    3: "00000000-0000-4000-8000-000000000003"   # Li3-000000003
+  # Lithionics ACR (advertises as Li3-ACR), found 2026-09-24. Same FFE0/FFE1
+  # transport as the packs. Its stream is the only view of the alternator
+  # circuit and of the chassis battery; the Cerbo sees neither. Two costs:
+  # it is a fourth CoreBluetooth connection, and while the sidecar holds it
+  # the ACR stops advertising, so the Lithionics phone app cannot find it —
+  # `launchctl unload` the ble job first to use the app's terminal console.
+  acr_address: "00000000-0000-4000-8000-0000000000A1"
+  # Rows are written whenever an unmapped field changes, else this often.
+  acr_sample_seconds: 30
+  sample_downsample_seconds: 30
+  reconnect_backoff_seconds: 5
+  # Bounds BleakClient.connect(). On macOS a connect to an address
+  # CoreBluetooth cannot resolve never returns, and bleak's own timeout does
+  # not cover it, so without this a shutdown arriving mid-connect hung the
+  # sidecar until SIGKILL.
+  #
+  # 60 s, not 30, and the margin is deliberate: out-of-range failures land at
+  # exactly 30.0 s, but a *successful* pack connect has taken 33.3 s
+  # (2026-09-21 14:35:42 -> 14:36:15, pack 2), so a good connect can outlast
+  # bleak's discovery timeout. Anything at or below 30 s would have killed
+  # that one. Out of range this changes nothing — bleak still fails at 30 s.
+  connect_timeout_seconds: 60.0
+  # Cabin sensors, read PASSIVELY from their advertisements — never connected,
+  # so they cost no CoreBluetooth connection slot and cannot disturb the three
+  # pack links. Address -> label.
+  #
+  # Closes the gap that made the seasonal-load question unanswerable: daily DC
+  # load correlates with *pack* temperature at r = +0.016 (34 days), because the
+  # packs sit in a cabinet with thermal mass and self-heat under charge. Cabin
+  # air is what actually drives fridge duty and whether the MaxxFan runs.
+  # Found already installed in the van during a BLE scan on 2026-09-24.
+  cabin_sensors:
+    "00000000-0000-4000-8000-0000000000C1": cabin      # Govee H5179
+  cabin_sample_seconds: 60
+obd:
+  # Engine data over a BLE ELM327-class adapter, read by the BLE sidecar and
+  # stored in engine_samples. See src/cerberus/obd.py for the full rationale.
+  #
+  # Short version: three drives have ended with a full bank and two overshot
+  # the packs' 14.4 V request (14.75 V with two CRIT on 09-24; 14.65 V for
+  # 46 min on 09-26) while 09-28 stayed at exactly 14.40 V at a *higher*
+  # +234.8 A. The breaker was ON for both 09-26 and 09-28, so it is not the
+  # variable, and time-at-full is not either (318 min on the clean drive vs 57
+  # on the overshoot). What is left is whether the engine ran *continuously*
+  # into a full bank — and alternator current cannot answer that, because it
+  # cannot separate "running hard" from "running at all". RPM can.
+  #
+  # DISABLED until an adapter is in hand. Enabling it with no `address` is a
+  # config error rather than a silent no-op, and ble.enabled must also be true
+  # because this reader runs inside that sidecar.
+  enabled: false
+  # The adapter's CoreBluetooth UUID on macOS (a MAC on Linux). Host-specific,
+  # exactly like ble.pack_addresses — discover with
+  # `python tools/ble_capture.py scan` with the adapter plugged in and the
+  # ignition on.
+  address: ""
+  # BLE-serial characteristics. Default is the Nordic UART Service, which is
+  # the common choice, but it IS only a guess — the packs on this rig use
+  # FFE0/FFE1 instead. If init writes go nowhere, dump the adapter's GATT table
+  # and set these.
+  # write_char: "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+  # notify_char: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+  #
+  # 2 s while the engine runs. Deliberately far finer than the 30 s electrical
+  # cadence: the whole point is to see what RPM was doing at the moment the
+  # voltage overshot, and a 30 s sample would average that away.
+  poll_seconds: 2
+  # Engine off. The adapter stays plugged into the OBD port, which runs off the
+  # CHASSIS battery, so a parked van must not keep it awake. After this many
+  # empty poll cycles in a row (~6 s at 2 s polls; one dropped cycle mid-drive
+  # does not count) the sidecar disconnects so the adapter can auto-sleep.
+  parked_after_empty_polls: 3
+  # While parked it reconnects this often and asks only ATRV (chassis
+  # voltage), which the adapter answers itself with no traffic on the vehicle
+  # bus. Cost: up to this long of missed RPM after engine start, unless the
+  # adapter wakes on ignition and the 60 s reconnect finds it sooner. If the
+  # adapter's own sleep timeout turns out to be longer than this, raise it, or
+  # the adapter never sleeps. Minimum 30.
+  parked_probe_seconds: 300
+  # ATRV at or above this means the alternator is charging and polling
+  # resumes. Running holds ~13.8-14.4 V, resting 12.4-12.9 V. Raise it if the
+  # chassis battery is ever float-charged from solar/the house bank while
+  # parked, or every probe will fall through to a full PID poll.
+  running_volts: 13.3
+  # Beyond the five core PIDs, every standard PID in obd.STANDARD_CATALOG that
+  # the van's supported-PID bitmaps list is polled too (tiers: fast every
+  # cycle, medium every 5th, slow every 30th), and every reply is kept raw in
+  # obd_samples. Manufacturer-specific reads go here. Find them by sniffing
+  # the NT510 through a Y-splitter with the CX in monitor mode: the module ID
+  # it addresses is `header`, the service-22 request is `request`, and the
+  # value the NT510 shows at the same moment gives the formula. Formula is
+  # arithmetic over the reply's data bytes A, B, C... (after the echoed
+  # request). Raw replies are stored, so a wrong formula can be fixed later
+  # and history re-decoded. Example shape only — this DID is NOT verified:
+  # extra:
+  #   - name: alternator_load_pct
+  #     header: "7E0"          # engine ECU
+  #     receive: "7E8"         # optional; listen only to this reply ID
+  #     request: "22XXXX"
+  #     formula: "A*100/255"
+  #     unit: "%"
+  #     tier: medium           # fast | medium | slow
+  #     min: 0
+  #     max: 100
+  extra: []
+  command_timeout_seconds: 1.0
+  # Longer because ATZ is a full adapter reset and is much slower than a PID
+  # query. Kept separate so a slow init does not force a slow poll.
+  init_timeout_seconds: 10.0
+  # Bounds the connect itself, which is a different failure from a slow
+  # command. On macOS a connect to an address CoreBluetooth cannot resolve
+  # never returns and bleak's own timeout does not cover it (verified
+  # 2026-09-30: shutdown hung indefinitely without this). Same 60 s as
+  # ble.connect_timeout_seconds and for the same reason — the 33.3 s
+  # successful connect that sets the floor is a property of this
+  # CoreBluetooth stack, not of the pack radios.
+  connect_timeout_seconds: 60.0
+  reconnect_backoff_seconds: 5
+drives:
+  # Per-drive records and baseline comparison (src/cerberus/drives.py). About
+  # 15 min after a drive ends the collector stores its metrics in `drives`,
+  # writes a markdown report to <db dir>/<report_dir>, and emits a
+  # drive_report event that HA pushes as a one-liner. The first run backfills
+  # all history from the electrical data without notifying.
+  enabled: true
+  report_dir: reports
+  # Hardware changes that reset the baseline: drives before the latest epoch
+  # are not compared against. Add a date whenever the charge path changes
+  # (DC-DC charger, new alternator, rewiring), then run
+  # `python tools/drive_report.py --rebuild`.
+  baseline_epochs:
+    - "2026-09-19"     # DC rewire: path 130 -> <=50 mOhm
+  # A Cerbo temperature probe sitting on a charge-path joint, if there is one.
+  # Instance 24 here: identified 2026-09-24 as a joint on the alternator path
+  # (19.8 -> 56.3 C under 190-220 A). Omit to skip the joint metrics.
+  joint_temp_instance: 24
+  joint_limit_c: 70.0    # hotter than anything on record (64.3 C on 09-26)
+  joint_cold_c: 32.0     # rests at ~28-32 C; warmer starts follow another drive
+  # Most current the engine can put into the bank: typical alternator peak if
+  # wired direct, the charger's rating behind a DC-DC. Drive detection scales
+  # from it: charging above 10% (min 5 A), a drive peaks above 50%, a 20%
+  # current change is a step. Stock alternator here, 140-220 A peaks. CHANGE
+  # THIS if a DC-DC charger goes in, or drives stop being detected.
+  engine_charge_a: 200
+
+solar_path:
+  # Daily MPPT-to-pack resistance and early-float check (src/cerberus/solar_path.py).
+  # The MPPT's absorption setpoint, read off the unit 2026-10-03 (DVCC off, so
+  # nothing overrides it). If it is changed on the charger, change it here.
+  absorption_v: 14.4
+  # Post-rewire measured <=50 mOhm, pre-rewire 130: clearly worse than the
+  # rewire left it, well before it costs as much as it used to.
+  path_limit_mohm: 75.0
+  # Local hour after which the day is processed; 21:00 clears sunset all year.
+  process_after_hour: 21
+
+heater:
+  # Kilowatt-class AC load runs (src/cerberus/heater.py), sized to the ~1.3 kW
+  # water heater against a 100-200 W base load.
+  on_delta_w: 800        # above baseline = run starts
+  off_delta_w: 400       # back under baseline + this = run ends
+  baseline_max_w: 800    # samples above this never count toward the baseline
+  default_baseline_w: 150
+weather:
+  # Outdoor conditions from met.no, stored in weather_samples alongside the
+  # electrical data. This exists because the van's seasonal energy balance has
+  # two terms moving in opposite directions and only one was ever measured:
+  # solar falls with day length, but load falls too — the fridge's compressor
+  # duty scales with the delta-T it pumps against, and the MaxxFan runs less
+  # when it is cool. On 2026-09-19 daily DC load vs *pack* temperature over 34
+  # days gave r = +0.016, i.e. nothing: the packs sit in a cabinet with thermal
+  # mass, self-heat under charge, and have never been recorded below 20.7 C.
+  #
+  # HA already pulls met.no, but its recorder keeps states for purge_keep_days
+  # (10 here) and weather attributes generate no long-term statistics, so that
+  # history is deleted continuously. Fetching upstream also survives HA being
+  # down and needs no token. NOTE this is regional outdoor air, NOT cabin
+  # temperature — the thing that actually drives the fridge and the fan. A
+  # cabin sensor is still the measurement that would close this question.
+  enabled: true
+  latitude: 39.7392           # example (Denver); set your own, or use the GX's GPS
+  longitude: -104.9903
+  # met.no rejects requests with no identifying User-Agent, and their terms of
+  # service ask for a contact address. Add yours — but note met.no returns
+  # HTTP 403 for a literal "example.com" placeholder, verified 2026-09-19, so
+  # substitute a real address or leave this default, which is accepted as-is.
+  user_agent: "Cerberus/0.1 (van battery telemetry; self-hosted)"
+  # met.no updates roughly hourly and asks callers not to hammer it; 15 min is
+  # well inside that and still finer than any thermal time constant here.
+  interval_seconds: 900
+  request_timeout_seconds: 10
+
+govee_cloud:
+  # The cabin H5179 read through Govee's cloud — the fallback for when this
+  # machine is out of BLE range of the van (at home on 2026-10-04 BLE caught ~1
+  # in 7 adverts at -90 to -99 dBm). The sensor uploads over WiFi whenever it
+  # has a network; nothing local can read it (no LAN API for sensors). Rows
+  # land in cabin_samples under the same sensor name with source='govee_cloud'.
+  # The cloud reports no reading time, so these are "last uploaded value", not
+  # 60 s samples. API key: GOVEE_API_KEY in .env, never here.
+  enabled: true
+  sensor: cabin
+  sku: H5179
+  device: "00:00:00:00:00:00:00:01"    # Govee cloud device id, "Cabin Thermometer"
+  # The API is rate-limited per account; 5 min is 288 requests/day. How often
+  # the sensor itself uploads is not yet measured — the stored rows will show it.
+  interval_seconds: 300
+  request_timeout_seconds: 10
+
+ui:
+  # Cerberus's own web UI (python -m cerberus.ui), read-only. 0.0.0.0 makes it
+  # reachable from a phone on the same network and over Tailscale; use
+  # 127.0.0.1 to keep it to this machine.
+  host: 0.0.0.0
+  port: 8088
+  # Footer source link (AGPL-3.0 section 13). Point it at your fork if you
+  # run a modified Cerberus that others use.
+  source_url: https://github.com/kishg/Cerberus-Core
+
+ha_mqtt:
+  # Home Assistant's mosquitto (ha-stack, published on 127.0.0.1 only). State,
+  # events and discovery go here directly; before 2026-10-20 they went to the
+  # Cerbo and reached HA through the bridge, which froze the panel whenever
+  # the Cerbo was on another network. Off by default for new installs (the
+  # Cerberus UI is the product's UI); on here.
+  enabled: true
+  host: 127.0.0.1
+  port: 1883

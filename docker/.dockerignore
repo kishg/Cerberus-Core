@@ -1,0 +1,15 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+data/
+*.db
+*.db-wal
+*.db-shm
+.env
+tests/
+docker/
+systemd/
+*.egg-info/
+build/
+dist/

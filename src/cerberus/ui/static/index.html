@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Cerberus</title>
+  <meta name="description" content="Your van's electrical system, read from its own data.">
+  <meta name="theme-color" content="#f9f9f7" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0d0d0d" media="(prefers-color-scheme: dark)">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/icon.svg">
+  <!-- Where the API lives. Same-origin by default; a native app wrapper or
+       the cloud relay sets its own. -->
+  <meta name="cerberus-api" content="/api/v1">
+  <link rel="stylesheet" href="/app.css">
+  <script>
+    // Apply a saved theme before first paint, so a dark choice never flashes
+    // light. Stored per device; "auto" (no stamp) follows the OS setting.
+    try {
+      var t = localStorage.getItem("cerberus.theme");
+      if (t === "dark" || t === "light") document.documentElement.dataset.theme = t;
+    } catch (e) {}
+  </script>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>Cerberus</h1>
+      <div class="header-right">
+        <div class="status" id="status" role="status" aria-live="polite"></div>
+        <button type="button" class="theme" id="theme" aria-label="Theme"></button>
+      </div>
+    </header>
+    <nav>
+      <a href="#now" data-view="now">Now</a>
+      <a href="#findings" data-view="findings">Findings</a>
+      <a href="#history" data-view="history">History</a>
+      <a href="#health" data-view="health">Health</a>
+      <a href="#settings" data-view="settings">Settings</a>
+    </nav>
+
+    <main id="view-now" hidden>
+      <section class="card">
+        <div class="hero"><span class="value" id="soc">–</span><span class="label">bank charge</span></div>
+        <div class="trust" id="trust"></div>
+      </section>
+      <section class="tiles" id="tiles"></section>
+      <section class="card" style="margin-top:12px">
+        <h2>Packs</h2>
+        <table id="packs"><thead><tr><th>Pack</th><th>Charge</th><th>Voltage</th><th>Current</th><th>Temp</th></tr></thead><tbody></tbody></table>
+      </section>
+      <section class="card">
+        <h2>Findings</h2>
+        <ul class="events" id="open-findings"></ul>
+      </section>
+    </main>
+
+    <main id="view-findings" hidden>
+      <div id="findings"></div>
+    </main>
+
+    <main id="view-health" hidden>
+      <section class="card">
+        <h2>Data sources</h2>
+        <table id="sources"><thead><tr><th>Source</th><th>Last data</th><th>Status</th></tr></thead><tbody></tbody></table>
+      </section>
+      <div id="coverage"></div>
+      <section class="card">
+        <h2>Gaps, last 7 days</h2>
+        <p class="sub" id="gaps-sub"></p>
+        <ul class="events" id="gaps"></ul>
+      </section>
+    </main>
+
+    <main id="view-settings" hidden>
+      <section class="card" id="lock"></section>
+      <form id="settings-form" novalidate></form>
+    </main>
+
+    <main id="view-history" hidden>
+      <div class="filters" role="group" aria-label="Time range">
+        <button type="button" data-range="24h">24 hours</button>
+        <button type="button" data-range="7d">7 days</button>
+        <button type="button" data-range="30d">30 days</button>
+        <button type="button" data-range="all">All</button>
+      </div>
+      <div id="charts"></div>
+    </main>
+    <footer id="about">Cerberus is free software under the AGPL-3.0.</footer>
+  </div>
+  <script src="/app.js"></script>
+</body>
+</html>

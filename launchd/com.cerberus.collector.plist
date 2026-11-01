@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Cerberus collector under launchd. macOS counterpart to systemd/cerberus.service.
+
+  Install:
+    cp launchd/com.cerberus.collector.plist ~/Library/LaunchAgents/
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.cerberus.collector.plist
+
+  Status / stop / start:
+    launchctl print gui/$(id -u)/com.cerberus.collector
+    launchctl kickstart -k gui/$(id -u)/com.cerberus.collector   # restart
+    launchctl bootout gui/$(id -u)/com.cerberus.collector        # stop + unload
+
+  This is a LaunchAgent, so it starts at *login*, not at boot. On a van rig
+  that reboots unattended that is the difference between recovering and
+  staying dark — see launchd/README.md for the LaunchDaemon variant and the
+  sleep caveat.
+
+  Paths are absolute because launchd does not expand ~ or run a login shell.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.cerberus.collector</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/YOU/cerberus/bin/run-collector.sh</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/YOU/cerberus</string>
+
+  <!-- Start on load/login, and restart whenever it exits for any reason.
+       The collector is meant to run continuously; a clean exit is still an
+       outage. -->
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+
+  <!-- Floor between respawns. Without it a config error becomes a hot restart
+       loop that fills the log. -->
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+
+  <!-- Append to the same log the hand-launched process used, so history
+       stays continuous. -->
+  <key>StandardOutPath</key>
+  <string>/Users/YOU/cerberus/soak/cerberus.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/YOU/cerberus/soak/cerberus.log</string>
+</dict>
+</plist>

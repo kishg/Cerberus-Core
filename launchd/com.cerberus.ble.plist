@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Cerberus BLE sidecar under launchd. Companion to com.cerberus.collector.plist.
+
+  Install:
+    cp launchd/com.cerberus.ble.plist ~/Library/LaunchAgents/
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.cerberus.ble.plist
+
+  Status / restart / stop:
+    launchctl print gui/$(id -u)/com.cerberus.ble
+    launchctl kickstart -k gui/$(id -u)/com.cerberus.ble
+    launchctl bootout gui/$(id -u)/com.cerberus.ble
+
+  Why it exists: the sidecar's last sample was 2026-08-29 and the gap went
+  unnoticed for three weeks, because it had no launchd job while the collector
+  did. Nothing supervised it, so nothing restarted it.
+
+  RANGE: BLE only reaches the packs from inside or beside the van — a scan from
+  the house returns 0 candidates. Started out of range this logs a connect
+  failure per pack per 60s and stores nothing, which is correct and expected;
+  _pack_loop retries forever with backoff capped at 60s and will pick the packs
+  up by itself on arrival, with no intervention.
+
+  Bluetooth permission is granted to the *binary* on macOS, so the first run
+  under launchd may need an approval that a hand-launched run already has.
+
+  Paths are absolute because launchd does not expand ~ or run a login shell.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.cerberus.ble</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/YOU/cerberus/bin/run-ble.sh</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/YOU/cerberus</string>
+
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+
+  <!-- Longer than the collector's 10s. A missing .env exits 78 immediately,
+       and out of BLE range there is nothing to gain from a fast respawn. -->
+  <key>ThrottleInterval</key>
+  <integer>30</integer>
+
+  <!-- Its OWN log, not cerberus.log. Out of range this writes a warning per
+       pack per 60s (~4,300 lines/day); mixed into the collector log that would
+       bury the MQTT and detector history that actually gets read. No rotation
+       is configured here — see launchd/README.md. -->
+  <key>StandardOutPath</key>
+  <string>/Users/YOU/cerberus/soak/cerberus-ble.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/YOU/cerberus/soak/cerberus-ble.log</string>
+</dict>
+</plist>

@@ -1,0 +1,32 @@
+[project]
+name = "cerberus"
+version = "0.1.0"
+description = "Electrical-system telemetry, diagnostics and owner UI for RV and camper vans"
+requires-python = ">=3.11"
+license = "AGPL-3.0-or-later"
+license-files = ["LICENSE"]
+dependencies = [
+  "paho-mqtt>=2.1",
+  "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+ble = ["bleak>=0.22"]
+
+[project.scripts]
+cerberus = "cerberus.__main__:main"
+cerberus-ble = "cerberus.ble:main"
+cerberus-ui = "cerberus.ui.__main__:main"
+
+[build-system]
+requires = ["setuptools>=77"]   # SPDX license field (PEP 639)
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+cerberus = ["venus-ca.crt", "ui/static/*"]
+
+[dependency-groups]
+dev = ["pytest>=8"]

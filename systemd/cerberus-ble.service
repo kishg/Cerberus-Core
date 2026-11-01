@@ -1,0 +1,22 @@
+[Unit]
+Description=Cerberus BLE sidecar (Lithionics packs and ACR, cabin sensor, OBD)
+After=bluetooth.target cerberus.service
+Wants=bluetooth.target
+
+[Service]
+Type=simple
+# Same settings and database as the collector. With ble.enabled false or no
+# config yet, it waits (no restart loop) and starts once BLE is turned on.
+EnvironmentFile=-/etc/cerberus/.env
+Environment=CERBERUS_SQLITE_PATH=/var/lib/cerberus/cerberus.db
+WorkingDirectory=/opt/cerberus
+ExecStart=/opt/cerberus/.venv/bin/python -m cerberus.ble --config /etc/cerberus/config.yaml
+Restart=always
+RestartSec=5
+User=cerberus
+Group=cerberus
+# BlueZ over D-Bus: Debian's policy admits the bluetooth group.
+SupplementaryGroups=bluetooth
+
+[Install]
+WantedBy=multi-user.target

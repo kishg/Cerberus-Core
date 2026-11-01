@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Cerberus UI under launchd. macOS counterpart to systemd/cerberus-ui.service.
+  A separate job from the collector, so a UI fault can never stop collection.
+
+  Install:
+    cp launchd/com.cerberus.ui.plist ~/Library/LaunchAgents/
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.cerberus.ui.plist
+
+  Then open http://localhost:8088 (or this Mac's LAN / Tailscale address from
+  a phone). Restart: launchctl kickstart -k gui/$(id -u)/com.cerberus.ui
+
+  Paths are absolute because launchd does not expand ~ or run a login shell.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.cerberus.ui</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/YOU/cerberus/bin/run-ui.sh</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/YOU/cerberus</string>
+
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+
+  <key>StandardOutPath</key>
+  <string>/Users/YOU/cerberus/soak/cerberus-ui.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/YOU/cerberus/soak/cerberus-ui.log</string>
+</dict>
+</plist>

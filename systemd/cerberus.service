@@ -1,0 +1,22 @@
+[Unit]
+Description=Cerberus battery-intelligence service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# The Cerbo password, beside config.yaml (cerberus.envfile). Optional ("-"):
+# a box not set up yet has none, and the collector waits for first-run setup
+# in the UI to write it.
+EnvironmentFile=-/etc/cerberus/.env
+Environment=CERBERUS_SQLITE_PATH=/var/lib/cerberus/cerberus.db
+WorkingDirectory=/opt/cerberus
+ExecStart=/opt/cerberus/.venv/bin/python -m cerberus --config /etc/cerberus/config.yaml
+Restart=always
+RestartSec=5
+User=cerberus
+Group=cerberus
+StateDirectory=cerberus
+
+[Install]
+WantedBy=multi-user.target
