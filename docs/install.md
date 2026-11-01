@@ -128,11 +128,17 @@ run on the **old** box:
 bin/migrate-to-box.sh you@new-box
 ```
 
+If the old box keeps its config, `.env`, venv and database in a folder apart
+from the code (`CERBERUS_HOME`, see [launchd/README.md](../launchd/README.md)),
+set it here too:
+`CERBERUS_HOME=/path/to/deployment bin/migrate-to-box.sh you@new-box`.
+
 It copies the settings, the Cerbo password, the PIN, the last phone position,
-the full history and the drive reports, takes the database copy while the old
-collector keeps running, installs it all on the new box (asking for sudo
-there), and deletes the copy on both ends. It refuses a box that is already
-set up unless `--force`. Two things change on purpose:
+the owner's notes on findings, the full history and the drive reports, takes
+the database copy while the old collector keeps running, installs it all on
+the new box (asking for sudo there), and deletes the copy on both ends. It
+refuses a box that is already set up unless `--force`. Two things change on
+purpose:
 
 - **Bluetooth is off** with no devices: addresses differ between machines
   (macOS UUIDs vs Linux MACs). On the new box, near the van, run

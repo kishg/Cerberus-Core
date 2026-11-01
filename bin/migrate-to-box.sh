@@ -5,6 +5,11 @@
 #   bin/migrate-to-box.sh user@new-box            # e.g. you@cerberus-van
 #   bin/migrate-to-box.sh --force user@new-box    # replace a box already set up
 #
+# The deployment (config.yaml, .env, .venv, soak/data/cerberus.db) is
+# CERBERUS_HOME if set, as for bin/run-*.sh, else this checkout:
+#
+#   CERBERUS_HOME=~/Cerberus/cerberus bin/migrate-to-box.sh user@new-box
+#
 # 1. Bundles everything with `python -m cerberus.migrate` into a private
 #    temp directory: config.yaml, setup.yaml (Bluetooth cleared, HA off: the
 #    new box's addresses differ), .env, the PIN hash, the last phone position,
@@ -23,8 +28,13 @@ set -euo pipefail
 FORCE=0
 if [[ "${1:-}" == "--force" ]]; then FORCE=1; shift; fi
 TARGET="${1:?usage: $0 [--force] user@host}"
-HERE="$(cd "$(dirname "$0")/.." && pwd)"
+CODE="$(cd "$(dirname "$0")/.." && pwd)"
+HERE="${CERBERUS_HOME:-$CODE}"
 cd "$HERE"
+[[ -f "$HERE/config.yaml" && -x "$HERE/.venv/bin/python" ]] || {
+  echo "migrate: no config.yaml and .venv in $HERE; set CERBERUS_HOME to the deployment" >&2
+  exit 66
+}
 DB="${CERBERUS_SQLITE_PATH:-$HERE/soak/data/cerberus.db}"
 
 say() { printf '\n==> %s\n' "$*"; }
@@ -54,7 +64,7 @@ say "Bundling (the collector here keeps running)"
 
 say "Copying to $TARGET"
 ssh "$TARGET" "umask 077 && mkdir -p $REMOTE"
-cp "$HERE/bin/install-bundle.sh" "$WORK/bundle/"
+cp "$CODE/bin/install-bundle.sh" "$WORK/bundle/"
 rsync -a --chmod=go-rwx "$WORK/bundle/" "$TARGET:$REMOTE/"
 
 say "Installing on $TARGET (sudo)"
