@@ -8,6 +8,12 @@ license-files = ["LICENSE"]
 dependencies = [
   "paho-mqtt>=2.1",
   "pyyaml>=6.0",
+  # IANA zone data, including old aliases. A Victron GX can report a
+  # backward-compatible name such as America/Indianapolis, which Debian 13 and
+  # Ubuntu 24.04 move out of the default tzdata (tzdata-legacy). Without this,
+  # zone() falls back to the host's time, UTC on a fresh server, and every
+  # van-local day is off by hours.
+  "tzdata>=2024.1",
 ]
 
 [project.optional-dependencies]
