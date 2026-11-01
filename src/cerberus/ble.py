@@ -210,6 +210,15 @@ ACR_INT_FIELDS = ("field1", "field2", "chassis_v_cv", "house_v_cv",
 ACR_CHANGE_FIELDS = ("field1", "field2", "field5", "field6", "field7",
                      "chassis_present", "version")
 
+# ACR modes (field 1) seen only with the engine running: 1 crank (chassis
+# only), 2 alternator charging the house, 4 the high-voltage cut-out while the
+# alternator runs. Decoded from a 1 s capture of a crank and idle on
+# 2026-11-01. 0 is apart and 3 the house supporting the chassis, both seen
+# with the engine off (after a stop, and when the driver's door wakes it).
+ACR_ENGINE_MODES = frozenset({1, 2, 4})
+# An ACR frame newer than this is a live reading of the engine's state.
+ACR_FRESH_S = 120
+
 
 def parse_acr_frame(line: str) -> dict | None:
     """ACR stream frame, e.g. "*,0,0,1261,1325,0,0,0,1,6002".
@@ -251,6 +260,12 @@ class BleCollector:
         self._acr_last: dict | None = None
         self._acr_last_write_ts = 0
         self._acr_unknown_warned = False
+        # The ACR's latest mode and when it was heard, kept for every frame
+        # (not just the stored ones): the OBD loop wakes on a change into
+        # ACR_ENGINE_MODES instead of trusting chassis voltage.
+        self._acr_mode: int | None = None
+        self._acr_seen_ts = 0.0
+        self._engine_hint = asyncio.Event()
 
     def shutdown(self) -> None:
         self._stop.set()
@@ -369,6 +384,7 @@ class BleCollector:
         parked = False
         while not self._stop.is_set():
             was_parked = parked
+            self._engine_hint.clear()
             try:
                 faillog.connecting(cfg.address)
                 client = BleakClient(cfg.address)
@@ -394,10 +410,11 @@ class BleCollector:
                 backoff = float(cfg.reconnect_backoff_seconds)
                 if parked:
                     if not was_parked:
-                        log.info("obd: engine off — disconnected, checking "
-                                 "chassis voltage every %d s",
-                                 cfg.parked_probe_seconds)
-                    await self._sleep_or_stop(cfg.parked_probe_seconds)
+                        log.info("obd: engine off — disconnected, waiting for %s",
+                                 "the ACR to see a crank or charging"
+                                 if self._acr_live() else
+                                 f"a chassis-voltage check every {cfg.parked_probe_seconds} s")
+                    await self._obd_wait_parked(cfg)
                     continue
                 log.warning("obd: disconnected")
             except Exception as e:
@@ -421,7 +438,11 @@ class BleCollector:
         volts = obd_mod.decode_voltage(
             await chan.ask(obd_mod.CMD_VOLTAGE, timeout=cfg.command_timeout_seconds)
         )
-        if volts is not None and volts < cfg.running_volts:
+        acr = self._acr_says_engine()
+        if acr is False:
+            log.debug("obd: ACR mode %s, engine off", self._acr_mode)
+            return True
+        if acr is None and volts is not None and volts < cfg.running_volts:
             log.debug("obd: chassis %.1f V < %.1f V, engine off",
                       volts, cfg.running_volts)
             return True
@@ -630,6 +651,7 @@ class BleCollector:
                     log.debug("acr: unrecognised line %r", line)
             return
         now = int(time.time())
+        self._note_acr_mode(frame.get("field1"))
         changed = self._acr_last is None or any(
             frame.get(k) != self._acr_last.get(k) for k in ACR_CHANGE_FIELDS)
         if not changed and now - self._acr_last_write_ts < self.cfg.acr_sample_seconds:
@@ -641,6 +663,66 @@ class BleCollector:
         if self.db.insert_acr_sample(ts=now, **frame):
             self._acr_last = frame
             self._acr_last_write_ts = now
+
+    def _note_acr_mode(self, mode: int | None) -> None:
+        prev, self._acr_mode = self._acr_mode, mode
+        self._acr_seen_ts = time.monotonic()
+        if mode in ACR_ENGINE_MODES and prev not in ACR_ENGINE_MODES:
+            self._engine_hint.set()
+
+    def _acr_live(self) -> bool:
+        return (self._acr_mode is not None
+                and time.monotonic() - self._acr_seen_ts <= ACR_FRESH_S)
+
+    def _acr_says_engine(self) -> bool | None:
+        """True/False from a live ACR, None when there is no live ACR."""
+        if not self._acr_live():
+            return None
+        return self._acr_mode in ACR_ENGINE_MODES
+
+    async def _hint_or_stop(self, seconds: float) -> bool:
+        """Wait for the engine hint, shutdown or the timeout; True on the hint."""
+        hint = asyncio.ensure_future(self._engine_hint.wait())
+        stop = asyncio.ensure_future(self._stop.wait())
+        try:
+            await asyncio.wait({hint, stop}, timeout=seconds,
+                               return_when=asyncio.FIRST_COMPLETED)
+        finally:
+            for t in (hint, stop):
+                t.cancel()
+        return self._engine_hint.is_set() and not self._stop.is_set()
+
+    async def _obd_wait_parked(self, cfg: cfg_mod.ObdConfig) -> None:
+        """Wait, disconnected, until the engine may be running.
+
+        With a live ACR: until it changes into an engine mode (a crank), with
+        no polling at all. Chassis voltage can't be trusted here, because the
+        ACR puts the house bank's voltage on the chassis with the engine off.
+        Only a change wakes it, never the mode as it stands, so a mode that
+        outlasts the engine can't make the loop reconnect over and over; RPM
+        has the last word once connected. The hint is cleared as each session
+        starts, so a crank during the session or the disconnect still wakes
+        this. Without a live ACR (none fitted, out of range): after
+        parked_probe_seconds, for the voltage probe as before.
+        """
+        step = min(10.0, float(cfg.parked_probe_seconds))
+        waited = 0.0
+        while not self._stop.is_set():
+            if self._engine_hint.is_set():
+                return
+            if self._acr_live():
+                # Still in an engine mode after RPM said off (an adapter
+                # hiccup mid-drive?): retry at the old probe rate, no faster.
+                if self._acr_says_engine() and waited >= cfg.parked_probe_seconds:
+                    return
+                if await self._hint_or_stop(step):
+                    return
+                waited += step
+                continue
+            if waited >= cfg.parked_probe_seconds:
+                return
+            await self._sleep_or_stop(step)
+            waited += step
 
     def _dispatch(self, pack_id_hint: int, line: str) -> None:
         a = parse_frame_a(line)

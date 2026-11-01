@@ -309,8 +309,11 @@ class _ScriptedClient:
         pass
 
 
-def _run_scripted(monkeypatch, answer, seconds, **obd_over):
-    """Run the OBD loop against answer(cmd) -> reply; return (cmds, db)."""
+def _run_scripted(monkeypatch, answer, seconds, script=None, acr_mode=None, **obd_over):
+    """Run the OBD loop against answer(cmd) -> reply; return (cmds, db).
+    script(collector) is an optional coroutine run alongside, to feed ACR
+    modes the way _dispatch_acr would; acr_mode is the ACR's mode already
+    heard when the loop starts."""
     cmds: list[str] = []
 
     async def ask(self, cmd, timeout):
@@ -329,10 +332,16 @@ def _run_scripted(monkeypatch, answer, seconds, **obd_over):
 
     async def go():
         c = BleCollector(ble, db, obd_cfg=obd)
+        if acr_mode is not None:
+            c._note_acr_mode(acr_mode)
+            c._engine_hint.clear()      # heard before the loop, not a fresh crank
         task = asyncio.create_task(c.run())
+        side = asyncio.create_task(script(c)) if script else None
         await asyncio.sleep(seconds)
         c.shutdown()
         await asyncio.wait_for(task, timeout=5)
+        if side:
+            side.cancel()
 
     asyncio.run(go())
     return cmds, db, Client
@@ -643,3 +652,55 @@ def test_def_level_from_the_vans_9b_reply():
     from cerberus.obd import STANDARD_CATALOG
     spec = next(s for s in STANDARD_CATALOG if s.name == "def_level_pct")
     assert round(decode_spec(spec, "419B0E7D38C8\r\r>"), 1) == 78.4    # 2026-11-01
+
+
+# --- the ACR as the engine-on trigger (2026-11-01) --------------------------------
+#
+# With the engine off the ACR can join the house bank to the chassis (mode 3),
+# so the chassis reads 13.3-14+ V and the voltage probe would call the engine
+# running. A live ACR decides instead: modes 1/2/4 only happen with it running.
+
+def _feed(modes):
+    """A script that sets ACR modes at the given times: [(seconds, mode), ...]."""
+    async def script(c):
+        last = 0.0
+        for at, mode in modes:
+            await asyncio.sleep(at - last)
+            last = at
+            c._note_acr_mode(mode)
+    return script
+
+
+def _engine_answers(rpm_reply):
+    def answer(cmd):
+        if cmd == CMD_VOLTAGE:
+            return "13.4V\r\r>"                  # house voltage on the chassis
+        if cmd == "010C":
+            return rpm_reply
+        return "OK\r\r>" if cmd.startswith("AT") else "NO DATA\r\r>"
+    return answer
+
+
+def test_acr_off_mode_beats_a_high_chassis_voltage(monkeypatch):
+    cmds, _, Client = _run_scripted(
+        monkeypatch, _engine_answers("NO DATA\r\r>"), seconds=0.4,
+        acr_mode=3, parked_probe_seconds=0.1)
+    assert "ATZ" not in cmds and "010C" not in cmds    # never touched the bus
+    assert Client.connects == 1                        # and stays disconnected
+
+
+def test_acr_crank_wakes_obd_and_rpm_keeps_it_polling(monkeypatch):
+    cmds, db, _ = _run_scripted(
+        monkeypatch, _engine_answers(RPM_1500), seconds=0.5,
+        acr_mode=0, script=_feed([(0.2, 1), (0.25, 2)]), parked_probe_seconds=300)
+    assert "ATZ" in cmds and "010C" in cmds
+    assert [r[0] for r in db.conn.execute("select rpm from engine_samples")][-1] == 1500.0
+
+
+def test_engine_mode_without_rpm_does_not_reconnect_rapidly(monkeypatch):
+    """ACR stuck in mode 2 but the engine says nothing: RPM has the last word,
+    and the loop waits a full probe interval before trying again."""
+    cmds, _, Client = _run_scripted(
+        monkeypatch, _engine_answers("NO DATA\r\r>"), seconds=0.5,
+        acr_mode=2, parked_probe_seconds=300)
+    assert Client.connects == 1
