@@ -105,3 +105,14 @@ def test_scripts_parse():
     import subprocess
     for s in ("bin/migrate-to-box.sh", "bin/install-bundle.sh", "bin/install-linux.sh"):
         assert subprocess.run(["bash", "-n", str(ROOT / s)]).returncode == 0
+
+
+def test_install_bundle_installs_every_bundled_file(old_box, tmp_path):
+    # install-bundle.sh names each file it installs; one the bundle carries
+    # but the script skips is lost on the new box (the notes were, until
+    # 2026-11-01).
+    cfg, db = old_box
+    m = migrate.bundle(cfg, db, tmp_path / "bundle")
+    script = (ROOT / "bin/install-bundle.sh").read_text()
+    missing = [f for f in m["files"] if f.rstrip("/") not in script]
+    assert missing == []

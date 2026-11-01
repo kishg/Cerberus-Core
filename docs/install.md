@@ -112,11 +112,17 @@ and events then appear as HA entities.
 
 ## 8. BLE batteries and sensors
 
-Reading Lithionics packs, the ACR or a Govee cabin sensor over Bluetooth is
-not in the wizard yet: add the device addresses under `ble:` in
-`/etc/cerberus/config.yaml` (see this van's [config.yaml](../config.yaml) for
-the shape) and set `ble.enabled: true`. The BLE service starts by itself
-once it is on.
+Lithionics packs, the ACR and Bluetooth thermometers (Govee, Xiaomi,
+SwitchBot, BTHome and others) are found from the UI. Signed in, near the
+devices, open **Settings > Find Bluetooth devices > Scan** (up to a minute),
+tick the ones that are this van's, give each thermometer a name (`cabin`,
+`fridge`…), then **Use selected**. That turns Bluetooth on, and the BLE
+service starts by itself. Devices already connected stop advertising and
+don't show up in a scan; the Bluetooth settings above it list those.
+
+The addresses can also go by hand under `ble:` in `/etc/cerberus/config.yaml`
+(the example [config.yaml](../config.yaml) shows the shape), with
+`ble.enabled: true`.
 
 ## Moving an existing Cerberus to a new box
 
@@ -128,11 +134,17 @@ run on the **old** box:
 bin/migrate-to-box.sh you@new-box
 ```
 
+If the old box keeps its config, `.env`, venv and database in a folder apart
+from the code (`CERBERUS_HOME`, see [launchd/README.md](../launchd/README.md)),
+set it here too:
+`CERBERUS_HOME=/path/to/deployment bin/migrate-to-box.sh you@new-box`.
+
 It copies the settings, the Cerbo password, the PIN, the last phone position,
-the full history and the drive reports, takes the database copy while the old
-collector keeps running, installs it all on the new box (asking for sudo
-there), and deletes the copy on both ends. It refuses a box that is already
-set up unless `--force`. Two things change on purpose:
+the owner's notes on findings, the full history and the drive reports, takes
+the database copy while the old collector keeps running, installs it all on
+the new box (asking for sudo there), and deletes the copy on both ends. It
+refuses a box that is already set up unless `--force`. Two things change on
+purpose:
 
 - **Bluetooth is off** with no devices: addresses differ between machines
   (macOS UUIDs vs Linux MACs). On the new box, near the van, run
