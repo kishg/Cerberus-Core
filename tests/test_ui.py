@@ -256,7 +256,7 @@ def test_vehicle_idling_with_chassis_fuel_and_def(db):
     assert v["chassis"] == {"ts": NOW - 5, "voltage": 14.21, "linked": True}
     assert v["engine"]["state"] == "idling" and v["engine"]["rpm"] == 768.0
     assert v["fuel"]["pct"] == 65 and v["def"]["pct"] == 78
-    assert v["odometer"] == {"ts": NOW - 60, "mi": 36960}
+    assert v["odometer"] == {"ts": NOW - 60, "mi": 36960, "source": "obd"}
 
 
 def test_vehicle_engine_off_keeps_last_fuel_and_drops_stale_chassis(db):
@@ -267,7 +267,7 @@ def test_vehicle_engine_off_keeps_last_fuel_and_drops_stale_chassis(db):
     v = api.now_view(db.conn, api.Context(), NOW)["vehicle"]
     assert "chassis" not in v
     assert v["engine"] == {"ts": NOW - 1800, "state": "off", "rpm": None, "speed_mph": None}
-    assert v["fuel"] == {"ts": NOW - 1800, "pct": 50}
+    assert v["fuel"] == {"ts": NOW - 1800, "pct": 50, "source": "obd"}
 
 
 def test_vehicle_driving(db):

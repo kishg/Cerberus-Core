@@ -30,6 +30,7 @@ import sqlite3
 from dataclasses import dataclass, field
 from datetime import tzinfo
 
+from .baseline import _median
 from .location import day_start, local
 
 URGENT, ATTENTION, INFO = "urgent", "attention", "info"
@@ -410,6 +411,110 @@ def def_low(conn, s: Settings, now: int) -> list[Finding]:
         first_seen=low[0][0], last_seen=lts)]
 
 
+# ---------------------------------------------------------------- vehicle import
+
+# starter_battery_state (cerberus.vehicle): Mercedes coding.
+_STARTER = {0: None, 4: None, 1: (INFO, "fair"), 3: (ATTENTION, "weak"), 2: (URGENT, "poor")}
+# A tyre this far below its own 30-day median is losing air.
+TYRE_DROP_PCT = 10.0
+_TYRES = {"tire_fl_psi": "front left", "tire_fr_psi": "front right",
+          "tire_rl_psi": "rear left", "tire_rr_psi": "rear right"}
+
+
+def _vehicle_series(conn, name: str, since: int = 0) -> list[tuple[int, float]]:
+    return conn.execute(
+        "SELECT ts, value FROM vehicle_samples WHERE name = ? AND ts >= ? AND value IS NOT NULL "
+        "ORDER BY ts", (name, since)).fetchall()
+
+
+def starter_battery(conn, s: Settings, now: int) -> list[Finding]:
+    """The chassis's own verdict on its starter battery (imported)."""
+    rows = _vehicle_series(conn, "starter_battery_state")
+    if not rows:
+        return []
+    bad = [(ts, int(v)) for ts, v in rows if _STARTER.get(int(v))]
+    ts, v = rows[-1]
+    status = _status_for(bad[-1][0] if bad else None, bool(_STARTER.get(int(v))), now)
+    if status is None:
+        return []
+    bts, bv = bad[-1]
+    sev, word = _STARTER[bv]
+    explain = (f"The van's own battery check rated the starter battery {word} on "
+               f"{_day(bts, s.tz)}. This is the chassis battery the engine starts from, "
+               f"not the house bank.")
+    if status == RESOLVED:
+        explain += f" It rated it good again on {_day(ts, s.tz)}."
+    return [Finding(
+        key="starter_battery", severity=sev if status == OPEN else INFO, status=status,
+        title="The starter battery is getting weak",
+        explain=explain,
+        action=("Have the starter battery tested. Long parked spells with loads on the "
+                "chassis side drain it." if status == OPEN else "Nothing to do now."),
+        first_seen=bad[0][0], last_seen=bts)]
+
+
+def tyre_pressure(conn, s: Settings, now: int) -> list[Finding]:
+    """The van's tyre warning, or a tyre clearly below its own recent level."""
+    problems, last_bad, first_bad = [], None, None
+    warn = _vehicle_series(conn, "tire_warning")
+    if warn:
+        hits = [ts for ts, v in warn if v >= 1]
+        if hits:
+            last_bad, first_bad = hits[-1], hits[0]
+        if warn[-1][1] >= 1:
+            problems.append("the van's tyre-pressure warning is on")
+    for name, where in _TYRES.items():
+        rows = _vehicle_series(conn, name, now - 30 * DAY)
+        if len(rows) < 5:
+            continue
+        med = _median([v for _, v in rows[:-1]])
+        ts, v = rows[-1]
+        if med and v <= med * (1 - TYRE_DROP_PCT / 100):
+            problems.append(f"{where} is at {v:.0f} psi, down from {med:.0f} psi")
+            last_bad = max(last_bad or 0, ts)
+            first_bad = min(first_bad or ts, ts)
+    status = _status_for(last_bad, bool(problems), now)
+    if status is None:
+        return []
+    return [Finding(
+        key="tyre_pressure", severity=ATTENTION if status == OPEN else INFO, status=status,
+        title="A tyre is low on pressure",
+        explain=("Tyre pressure: " + "; ".join(problems) + "." if problems else
+                 f"The tyre warning was on until {_day(last_bad, s.tz)}; it has cleared."),
+        action=("Check the pressures cold and top up to the door-pillar figure; look for "
+                "a nail or a slow leak." if status == OPEN else "Nothing to do now."),
+        first_seen=first_bad, last_seen=last_bad)]
+
+
+def vehicle_fluids(conn, s: Settings, now: int) -> list[Finding]:
+    """Coolant, brake fluid and washer warnings from the chassis."""
+    names = {"coolant_low": ("coolant", ATTENTION), "brake_fluid_low": ("brake fluid", ATTENTION),
+             "washer_low": ("washer fluid", INFO)}
+    open_, last_bad, first_bad, sev = [], None, None, INFO
+    for name, (label, level) in names.items():
+        rows = _vehicle_series(conn, name)
+        hits = [ts for ts, v in rows if v >= 1]
+        if not hits:
+            continue
+        last_bad = max(last_bad or 0, hits[-1])
+        first_bad = min(first_bad or hits[0], hits[0])
+        if rows[-1][1] >= 1:
+            open_.append(label)
+            if level == ATTENTION:
+                sev = ATTENTION
+    status = _status_for(last_bad, bool(open_), now)
+    if status is None:
+        return []
+    return [Finding(
+        key="vehicle_fluids", severity=sev if status == OPEN else INFO, status=status,
+        title="The van reports a low fluid level",
+        explain=(f"Low {', '.join(open_)}, reported by the van." if open_ else
+                 f"A low-fluid warning was on until {_day(last_bad, s.tz)}; it has cleared."),
+        action=("Top up as the owner's manual says. Low coolant or brake fluid can mean a "
+                "leak: have it checked if it drops again." if status == OPEN else "Nothing to do now."),
+        first_seen=first_bad, last_seen=last_bad)]
+
+
 # ---------------------------------------------------------------- edge events
 
 def _episodes(rows, ignore=None):
@@ -636,7 +741,8 @@ def apply_notes(findings: list[Finding], notes: list[dict], s: Settings) -> list
 # ---------------------------------------------------------------- all
 
 DERIVERS = (solar_path, early_float, soc_honesty, alternator_overshoot, joint_heating,
-            pack_imbalance, engine_faults, def_low, edge_findings)
+            pack_imbalance, engine_faults, def_low, starter_battery, tyre_pressure,
+            vehicle_fluids, edge_findings)
 
 
 def derive(conn: sqlite3.Connection, s: Settings, now: int,

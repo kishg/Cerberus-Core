@@ -54,10 +54,16 @@ class HaBroker:
     since a broker restart without persistence would otherwise lose them."""
 
     def __init__(self, host: str, port: int, availability_topic: str,
-                 on_ready: Callable[[], None] | None = None) -> None:
+                 on_ready: Callable[[], None] | None = None,
+                 subscriptions: tuple[str, ...] = (),
+                 on_message: Callable[[str, bytes], None] | None = None) -> None:
         self.host, self.port = host, port
         self.availability_topic = availability_topic
         self.on_ready = on_ready
+        # Read side, only for ha_mqtt.import_topics: values another system
+        # publishes on this broker for Cerberus to record.
+        self.subscriptions = subscriptions
+        self.on_message_cb = on_message
         self.connected = False
         self.client = mqtt.Client(CallbackAPIVersion.VERSION2,
                                   client_id=f"cerberus-ha-{int(time.time())}")
@@ -65,6 +71,7 @@ class HaBroker:
         self.client.will_set(availability_topic, payload=b"offline", qos=1, retain=True)
         self.client.on_connect = self._on_connect
         self.client.on_disconnect = self._on_disconnect
+        self.client.on_message = self._on_message
 
     def start(self) -> None:
         log.info("HA broker: connecting to %s:%d", self.host, self.port)
@@ -90,11 +97,21 @@ class HaBroker:
             return
         self.connected = True
         log.info("HA broker connected (%s:%d)", self.host, self.port)
+        for topic in self.subscriptions:
+            client.subscribe(topic, qos=0)
         if self.on_ready is not None:
             try:
                 self.on_ready()
             except Exception:
                 log.exception("HA on_ready callback raised")
+
+    def _on_message(self, client, userdata, msg) -> None:
+        if self.on_message_cb is None:
+            return
+        try:
+            self.on_message_cb(msg.topic, msg.payload)
+        except Exception:
+            log.exception("HA import message handler raised (%s)", msg.topic)
 
     def _on_disconnect(self, client, userdata, *args) -> None:
         self.connected = False

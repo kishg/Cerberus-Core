@@ -436,3 +436,9 @@ ha_mqtt:
   enabled: true
   host: 127.0.0.1
   port: 1883
+  # Vehicle values another system publishes on this broker for Cerberus to
+  # record (cerberus.vehicle): JSON {"ts", "source", "values": {name: number}}.
+  # E.g. a Home Assistant automation republishing the chassis maker's cloud
+  # data (tyres, starter battery, fuel and AdBlue while parked). Empty: none.
+  # import_topics:
+  #   - cerberus/import/vehicle

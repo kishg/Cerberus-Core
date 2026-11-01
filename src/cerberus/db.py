@@ -241,6 +241,13 @@ CREATE TABLE IF NOT EXISTS obd_signals (
   first_seen INTEGER, last_seen INTEGER,
   PRIMARY KEY (ecu, name)
 );
+-- Vehicle values imported from another system through the HA broker
+-- (ha_mqtt.import_topics), e.g. the chassis's own cloud data via Home
+-- Assistant. One row per value per snapshot; source names the system.
+CREATE TABLE IF NOT EXISTS vehicle_samples (
+  ts INTEGER NOT NULL, source TEXT NOT NULL, name TEXT NOT NULL, value REAL,
+  PRIMARY KEY (ts, source, name)
+);
 -- Trouble codes read once per engine-on session. Read-only (services 03/07);
 -- nothing here ever clears a code. codes is comma-separated, '' = none.
 CREATE TABLE IF NOT EXISTS obd_dtcs (
@@ -636,6 +643,20 @@ class Db:
             )
         except sqlite3.Error as e:
             log.error("obd_signals upsert failed: %s", e)
+
+    def insert_vehicle_samples(self, ts: int, source: str,
+                               values: dict[str, float]) -> int:
+        rows = [(ts, source, k, float(v)) for k, v in values.items()]
+        if not rows:
+            return 0
+        try:
+            self.conn.executemany(
+                "INSERT OR REPLACE INTO vehicle_samples (ts, source, name, value) "
+                "VALUES (?, ?, ?, ?)", rows)
+            return len(rows)
+        except sqlite3.Error as e:
+            log.error("vehicle_samples insert failed: %s", e)
+            return 0
 
     def insert_dtcs(self, ts: int, service: str, codes: list[str] | None,
                     raw: str | None) -> None:
