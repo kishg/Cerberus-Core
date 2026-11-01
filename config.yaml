@@ -64,6 +64,10 @@ bank:
   # Rated capacity, used only when the BMS / monitor does not report one
   # (this rig's packs report 310 Ah each since 2026-09-19).
   capacity_ah: 930
+  # Net charge current (bank minus solar) above which another charger (the
+  # engine, shore, a generator) is on. Omit to derive it from
+  # drives.engine_charge_a: max(5, 10%), 20 A here.
+  # charge_on_a: 20
 solar:
   # The PV array, which sizes the solar-open detector: "sun is up" at 75% of
   # array_voc_v, "true open circuit" at 92.5%, "the array was just working"

@@ -97,3 +97,37 @@ def test_bad_values_fail_at_load(tmp_path, monkeypatch, extra, match):
     monkeypatch.setenv("CERBERUS_MQTT_PASSWORD", "pw")
     with pytest.raises(cfg_mod.ConfigError, match=match):
         cfg_mod.load(_write(tmp_path, MINIMAL + textwrap.indent(extra, "    ")))
+
+
+# --- bank.charge_on_a (site-agnostic plan, PR 2) ---------------------------------
+
+def test_charge_on_a_is_derived_from_the_engine_as_before(tmp_path, monkeypatch):
+    monkeypatch.setenv("CERBERUS_MQTT_PASSWORD", "pw")
+    cfg = cfg_mod.load(REPO_CONFIG)                     # engine_charge_a 200 A
+    assert cfg.bank.charge_on_a == cfg.drives.settings.charge_on_a == 20.0
+    assert cfg.solar_path.charge_on_a == 20.0
+    assert cfg.thresholds["solar_open_charging_guard_a"] == 20.0
+    assert cfg_mod.load_ui(REPO_CONFIG).charge_on_a == 20.0
+    small = cfg_mod.load(_write(tmp_path, MINIMAL + "    drives:\n      engine_charge_a: 100\n"))
+    assert small.bank.charge_on_a == 10.0
+    tiny = cfg_mod.load(_write(tmp_path, MINIMAL + "    drives:\n      engine_charge_a: 20\n"))
+    assert tiny.bank.charge_on_a == 5.0                 # the floor
+
+
+def test_bank_charge_on_a_overrides_everything_but_drive_detection(tmp_path, monkeypatch):
+    monkeypatch.setenv("CERBERUS_MQTT_PASSWORD", "pw")
+    p = _write(tmp_path, MINIMAL + "    bank:\n      charge_on_a: 30\n")
+    cfg = cfg_mod.load(p)
+    assert cfg.bank.charge_on_a == cfg.solar_path.charge_on_a == 30.0
+    assert cfg.thresholds["solar_open_charging_guard_a"] == 30.0
+    assert cfg_mod.load_ui(p).charge_on_a == 30.0
+    assert cfg_mod.load_analysis(p)[1].charge_on_a == 30.0
+    assert cfg.drives.settings.charge_on_a == 20.0      # drives stay engine-based
+    assert cfg.solar_path.pack_count == cfg.bank.pack_count == 1
+
+
+@pytest.mark.parametrize("value", [0, -5, "lots"])
+def test_bank_charge_on_a_must_be_a_positive_number(tmp_path, monkeypatch, value):
+    monkeypatch.setenv("CERBERUS_MQTT_PASSWORD", "pw")
+    with pytest.raises(cfg_mod.ConfigError, match="bank.charge_on_a"):
+        cfg_mod.load(_write(tmp_path, MINIMAL + f"    bank:\n      charge_on_a: {value}\n"))
