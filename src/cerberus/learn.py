@@ -35,6 +35,7 @@ from __future__ import annotations
 import sqlite3
 import statistics
 
+from . import baseline
 from . import drives as drives_mod
 
 VOC_DAYS = 30
@@ -58,7 +59,7 @@ MATCH_TOLERANCE = 0.05
 
 
 class _Conn:
-    """drives.electrical_series takes a Db; the UI holds a bare connection."""
+    """baseline.electrical_series takes a Db; the UI holds a bare connection."""
 
     def __init__(self, conn):
         self.conn = conn
@@ -99,7 +100,7 @@ def array_voc(conn: sqlite3.Connection, now: int) -> dict | None:
 
 def engine_sessions(conn: sqlite3.Connection, now: int, pack_count: int) -> list[dict]:
     """Engine-like charge sessions, independent of any engine setting."""
-    series = drives_mod.electrical_series(_Conn(conn), now - ENGINE_DAYS * 86400, now,
+    series = baseline.electrical_series(_Conn(conn), now - ENGINE_DAYS * 86400, now,
                                           pack_count)
     sessions: list[dict] = []
     for ts, _i, _v, soc, _solar, alt, shore in series:
