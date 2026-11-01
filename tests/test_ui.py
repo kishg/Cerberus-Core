@@ -251,10 +251,12 @@ def test_vehicle_idling_with_chassis_fuel_and_def(db):
     _obd(db, NOW - 2, "speed_mph", 0.0)
     _obd(db, NOW - 60, "fuel_level_pct", 64.7)
     _obd(db, NOW - 60, "def_level_pct", 78.4)
+    _obd(db, NOW - 60, "odometer_mi", 36960.4)
     v = api.now_view(db.conn, api.Context(), NOW)["vehicle"]
     assert v["chassis"] == {"ts": NOW - 5, "voltage": 14.21, "linked": True}
     assert v["engine"]["state"] == "idling" and v["engine"]["rpm"] == 768.0
     assert v["fuel"]["pct"] == 65 and v["def"]["pct"] == 78
+    assert v["odometer"] == {"ts": NOW - 60, "mi": 36960}
 
 
 def test_vehicle_engine_off_keeps_last_fuel_and_drops_stale_chassis(db):

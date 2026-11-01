@@ -374,3 +374,32 @@ def test_configured_capacity_is_used_when_the_bms_is_silent():
     m300 = drives.compute_metrics(db, d, drives.Settings(pack_count=3, capacity_ah=300.0))
     m930 = drives.compute_metrics(db, d, RIG)
     assert m300["soc_drift_pct"] > m930["soc_drift_pct"]
+
+
+def test_obd_drive_reports_odometer_miles_and_coolant():
+    """A drive with the OBD adapter: odometer gives the miles, coolant its
+    start, end and peak, and the summary line uses both."""
+    db = _db()
+    s, e = _drive(db, T0, minutes=20)
+    for k in range(0, 20 * 60, 2):
+        coolant = min(40.0 + k / 10, 88.0)
+        db.conn.execute("INSERT INTO engine_samples (ts, rpm, speed_mph, coolant_c) "
+                        "VALUES (?, ?, ?, ?)", (T0 + k, 1800.0, 50.0, coolant))
+    for k in range(0, 20 * 60, 60):
+        db.conn.execute("INSERT INTO obd_samples (ts, ecu, name, raw, value) "
+                        "VALUES (?, '7DF', 'odometer_mi', '', ?)", (T0 + k, 36960.0 + k / 72))
+    d = drives.find_drives(db, 0, T0 + 86400, RIG)[0]
+    d.metrics = drives.compute_metrics(db, d, RIG)
+    m = d.metrics
+    assert m["odometer_start_mi"] == 36960.0
+    assert m["odometer_driven_mi"] == 15.8
+    assert (m["coolant_start_c"], m["coolant_max_c"]) == (40.0, 88.0)
+    line = drives.summary_line(d)
+    assert "16 mi" in line and "coolant max 88 °C" in line
+
+
+def test_electrical_drive_has_no_odometer_or_coolant():
+    db = _db()
+    s, e = _drive(db, T0, minutes=20)
+    m = drives.compute_metrics(db, drives.Drive(s, e, "electrical"), RIG)
+    assert not any(k.startswith(("odometer", "coolant")) for k in m)

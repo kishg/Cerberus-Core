@@ -152,6 +152,7 @@ function renderNow(d) {
     const asOf = (x) => (eng && eng.state !== "off" ? "Live" : `As of ${ago(x.ts, d.now)}`);
     if (v.fuel) tiles.append(tile("Fuel", `${fmtNum(v.fuel.pct, 0)}%`, asOf(v.fuel)));
     if (v.def) tiles.append(tile("DEF (AdBlue)", `${fmtNum(v.def.pct, 0)}%`, asOf(v.def)));
+    if (v.odometer) tiles.append(tile("Odometer", `${fmtNum(v.odometer.mi, 0)} mi`, asOf(v.odometer)));
   }
 
   const tbody = document.querySelector("#packs tbody");
