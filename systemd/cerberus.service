@@ -17,6 +17,9 @@ RestartSec=5
 User=cerberus
 Group=cerberus
 StateDirectory=cerberus
+# The database holds the van's history and positions: owner and group only
+# (the UI and BLE sidecar run as cerberus). systemd's default is 0755.
+StateDirectoryMode=0750
 
 [Install]
 WantedBy=multi-user.target
