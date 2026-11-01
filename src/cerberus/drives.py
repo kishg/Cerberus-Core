@@ -397,6 +397,8 @@ def _obd_metrics(db: Db, d: Drive, m: dict, series: list[tuple],
     m["rpm_max"] = _r(max(r[1] for r in running), 0) if running else None
     coolant = [(ts, c) for ts, _r_, _sp, c in eng if c is not None]
     if coolant:
+        m["coolant_start_c"] = _r(coolant[0][1], 0)
+        m["coolant_end_c"] = _r(coolant[-1][1], 0)
         m["coolant_max_c"] = _r(max(c for _, c in coolant), 0)
         if coolant[0][1] < 40:
             warm = next((ts for ts, c in coolant if c >= 70), None)
@@ -424,6 +426,16 @@ def _obd_metrics(db: Db, d: Drive, m: dict, series: list[tuple],
             cruise_a.append(a)
     m["alt_bulk_a_idle"] = _r(_median(idle_a), 1)
     m["alt_bulk_a_cruise"] = _r(_median(cruise_a), 1)
+
+    # The odometer (PID A6) is the van's own count, so it beats integrating
+    # speed for miles driven. It is polled once a minute; a drive under a
+    # minute may have one reading or none.
+    odo = _obd_series(db, "odometer_mi", s, e)
+    if odo:
+        m["odometer_start_mi"] = _r(odo[0][1], 1)
+        m["odometer_end_mi"] = _r(odo[-1][1], 1)
+        if len(odo) > 1:
+            m["odometer_driven_mi"] = _r(odo[-1][1] - odo[0][1], 1)
 
     fuel = _obd_series(db, "fuel_rate_lph", s, e)
     if fuel:
@@ -535,12 +547,16 @@ def _when(ts: int, tz: tzinfo | None = None) -> str:
 def summary_line(d: Drive, tz: tzinfo | None = None) -> str:
     m = d.metrics
     parts = [f"Drive {_when(d.start_ts, tz)[5:]}", f"{m['duration_min']:.0f} min"]
-    if "distance_mi" in m:
+    if "odometer_driven_mi" in m:
+        parts.append(f"{m['odometer_driven_mi']:.0f} mi")
+    elif "distance_mi" in m:
         parts.append(f"{m['distance_mi']:.0f} mi")
     if "alt_ah" in m:
         parts.append(f"+{m['alt_ah']:.0f} Ah")
     if "peak_bank_v" in m:
         parts.append(f"peak {m['peak_bank_v']:.2f} V")
+    if "coolant_max_c" in m:
+        parts.append(f"coolant max {m['coolant_max_c']:.0f} °C")
     head = ", ".join(parts)
     if not d.flags:
         return f"{head} — normal"

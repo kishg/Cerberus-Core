@@ -139,8 +139,8 @@ def _latest_obd(conn: sqlite3.Connection, name: str):
 
 def vehicle_view(conn: sqlite3.Connection, now: int) -> dict | None:
     """The chassis side: chassis battery voltage (from the ACR, which reads it
-    every few seconds), engine state, fuel and DEF (from OBD, as of the last
-    time the engine ran). None when the van reports none of it."""
+    every few seconds), engine state, fuel, DEF and odometer (from OBD, as of
+    the last time the engine ran). None when the van reports none of it."""
     out: dict = {}
     row = conn.execute(
         "SELECT ts, chassis_v_cv, field7 FROM acr_samples "
@@ -162,6 +162,9 @@ def vehicle_view(conn: sqlite3.Connection, now: int) -> dict | None:
         r = _latest_obd(conn, name)
         if r:
             out[key] = {"ts": r[0], "pct": round(r[1], 0)}
+    r = _latest_obd(conn, "odometer_mi")
+    if r:
+        out["odometer"] = {"ts": r[0], "mi": round(r[1])}
     return out or None
 
 
