@@ -475,10 +475,39 @@ def test_supported_bitmap_decodes_msb_first():
     assert "0120" in got                        # last bit: next bitmap exists
 
 
-def test_supported_bitmap_ignores_a_second_ecu():
+def test_supported_bitmap_is_the_union_of_every_ecu():
     one = decode_supported("0100", "4100BE1FA813\r>")
     two = decode_supported("0100", "4100BE1FA813\r4100 80 00 00 00\r>")
-    assert one == two
+    assert two == one | {"0101"}
+
+
+# Real replies from this van's OBDLink CX (2026-11-01, engine idling): four
+# ECUs answer the broadcast, and the first reply after ATSP0 carries
+# "SEARCHING..." ahead of the data.
+VAN_0100 = "SEARCHING...\r410098180001\r410098180001\r410098188013\r410098180001\r\r>"
+VAN_0120 = "41208001A001\r412080018001\r41208001A001\r41208003A001\r\r>"
+VAN_0140 = "414044C00001\r4140C0800000\r4140E4CC801D\r4140C4C00001\r\r>"
+
+
+def test_searching_prefix_does_not_hide_the_bitmap():
+    got = decode_supported("0100", VAN_0100)
+    assert {"0101", "0104", "0105", "010C", "010D", "0120"} <= got
+    assert {"0111", "011C", "011F"} <= got          # only in the engine ECU's line
+
+
+def test_searching_prefix_does_not_hide_a_reading():
+    assert decode_rpm("SEARCHING...\r410C0C00\r410C0C00\r\r>") == 768.0
+    assert decode_rpm("SEARCHING...\rUNABLE TO CONNECT\r>") is None
+
+
+def test_van_bitmaps_unlock_the_broad_catalogue():
+    supported = set()
+    for base, raw in (("0100", VAN_0100), ("0120", VAN_0120), ("0140", VAN_0140)):
+        supported |= decode_supported(base, raw)
+    names = {s.name for s in build_plan(supported)}
+    assert {"module_voltage_v", "ambient_air_f", "fuel_level_pct", "oil_temp_c",
+            "throttle_pct", "dtc_count"} <= names
+    assert "maf_gps" not in names                   # 0110: NO DATA on this van
 
 
 def test_formula_matches_published_pid_math():
