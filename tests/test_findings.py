@@ -166,3 +166,45 @@ def test_open_findings_sort_first_by_severity(db):
     order = [(f.status, f.severity, f.key) for f in F.derive(db.conn, S, NOW)]
     assert order[:2] == [("open", "urgent", "solar_output_open"),
                          ("open", "attention", "cell_imbalance")]
+
+
+# --- engine (OBD) ----------------------------------------------------------------
+
+def _obd(db, ts, name, value):
+    db.conn.execute("INSERT INTO obd_samples (ts, ecu, name, raw, value) VALUES (?, '7DF', ?, '', ?)",
+                    (ts, name, value))
+
+
+def test_engine_faults_open_while_the_latest_read_has_codes(db):
+    db.insert_dtcs(NOW - 2 * DAY, "03", [], "4300")
+    db.insert_dtcs(NOW - DAY, "03", ["P2002", "P0401"], "raw")
+    db.insert_dtcs(NOW - DAY, "07", ["P0299"], "raw")
+    f = _keys(db)["engine_faults"]
+    assert (f.status, f.severity) == ("open", "attention")
+    assert "P2002, P0401" in f.explain and "Pending (not yet confirmed): P0299" in f.explain
+    assert "never clears" in f.action
+
+
+def test_engine_faults_resolve_when_a_later_read_is_clean(db):
+    db.insert_dtcs(NOW - 3 * DAY, "03", ["P2002"], "raw")
+    db.insert_dtcs(NOW - DAY, "03", [], "4300")
+    f = _keys(db)["engine_faults"]
+    assert (f.status, f.severity) == ("resolved", "info")
+    assert "None stored at the read on Oct 30" in f.explain
+
+
+def test_no_engine_finding_without_codes_or_an_adapter(db):
+    assert "engine_faults" not in _keys(db)
+    db.insert_dtcs(NOW - DAY, "03", [], "4300")
+    assert "engine_faults" not in _keys(db)
+
+
+def test_def_low_opens_under_the_threshold_and_resolves_after_a_refill(db):
+    _obd(db, NOW - 3 * DAY, "def_level_pct", 40.0)
+    assert "def_low" not in _keys(db)
+    _obd(db, NOW - 2 * DAY, "def_level_pct", 12.2)
+    f = _keys(db)["def_low"]
+    assert f.status == "open" and "read 12% on Oct 29" in f.explain
+    _obd(db, NOW - DAY, "def_level_pct", 95.0)
+    f = _keys(db)["def_low"]
+    assert f.status == "resolved" and "It read 95% on Oct 30" in f.explain

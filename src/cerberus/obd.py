@@ -413,6 +413,9 @@ STANDARD_CATALOG: tuple[RequestSpec, ...] = (
     _std("0161", "demand_torque_pct", "%", "A-125", "medium", -125, 130),
     # slow — counters and levels
     _std("012F", "fuel_level_pct", "%", "A*100/255", "slow", 0, 100),
+    # Diesel exhaust fluid (AdBlue) sensor; D is the tank level. Byte B is the
+    # concentration (x0.25 %), C the tank temperature (A-40).
+    _std("019B", "def_level_pct", "%", "D*100/255", "slow", 0, 100),
     _std("0163", "reference_torque_nm", "Nm", "A*256+B", "slow", 0, 65535),
     _std("0101", "dtc_count", "count", "A % 128", "slow", 0, 127),
     _std("0121", "miles_with_mil", "mi", "(A*256+B)*0.621371", "slow"),

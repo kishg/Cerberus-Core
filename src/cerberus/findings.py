@@ -347,6 +347,69 @@ def pack_imbalance(conn, s: Settings, now: int) -> list[Finding]:
         first_seen=rows[0][0], last_seen=ts)]
 
 
+# ---------------------------------------------------------------- engine (OBD)
+
+# DEF (AdBlue) under this is worth a refill before a trip: an empty tank puts
+# a modern diesel into a speed-limited mode.
+DEF_LOW_PCT = 15.0
+
+
+def engine_faults(conn, s: Settings, now: int) -> list[Finding]:
+    """Trouble codes the engine reported, read once per engine-on session
+    (obd_dtcs). Open while the latest stored-codes read (service 03) has any."""
+    rows = conn.execute(
+        "SELECT ts, service, codes FROM obd_dtcs ORDER BY ts").fetchall()
+    stored = [(ts, c) for ts, svc, c in rows if svc == "03" and c is not None]
+    if not stored:
+        return []
+    bad = [(ts, c) for ts, c in stored if c]
+    last_ts, last_codes = stored[-1]
+    status = _status_for(bad[-1][0] if bad else None, bool(last_codes), now)
+    if status is None:
+        return []
+    ts, codes = bad[-1]
+    pending = [c for t, svc, c in rows if svc == "07" and t == last_ts and c]
+    explain = (f"The engine reported trouble code{'s' if ',' in codes else ''} "
+               f"{codes.replace(',', ', ')} on {_day(ts, s.tz)}.")
+    if pending:
+        explain += f" Pending (not yet confirmed): {pending[0].replace(',', ', ')}."
+    if status == RESOLVED:
+        explain += f" None stored at the read on {_day(last_ts, s.tz)}."
+    return [Finding(
+        key="engine_faults", severity=ATTENTION if status == OPEN else INFO, status=status,
+        title="The engine reported trouble codes",
+        explain=explain,
+        action=("Look the codes up for this engine, or have a scan tool or the dealer read "
+                "them in full. Cerberus only reads codes; it never clears them."),
+        first_seen=bad[0][0], last_seen=ts,
+        evidence={"kind": "events", "items": [[t, f"Stored: {c.replace(',', ', ')}"] for t, c in bad[-10:]]})]
+
+
+def def_low(conn, s: Settings, now: int) -> list[Finding]:
+    """Diesel exhaust fluid running low, from the OBD tank level."""
+    rows = conn.execute(
+        "SELECT ts, value FROM obd_samples WHERE name = 'def_level_pct' AND value IS NOT NULL "
+        "ORDER BY ts").fetchall()
+    if not rows:
+        return []
+    low = [(ts, v) for ts, v in rows if v < DEF_LOW_PCT]
+    ts, v = rows[-1]
+    status = _status_for(low[-1][0] if low else None, v < DEF_LOW_PCT, now)
+    if status is None:
+        return []
+    lts, lv = low[-1]
+    explain = (f"The DEF (AdBlue) tank read {lv:.0f}% on {_day(lts, s.tz)}. When it runs "
+               f"empty the engine limits the van's speed until it is refilled.")
+    if status == RESOLVED:
+        explain += f" It read {v:.0f}% on {_day(ts, s.tz)}."
+    return [Finding(
+        key="def_low", severity=ATTENTION if status == OPEN else INFO, status=status,
+        title="DEF (AdBlue) is running low",
+        explain=explain,
+        action="Top up the DEF tank before a long drive." if status == OPEN else "Nothing to do now.",
+        first_seen=low[0][0], last_seen=lts)]
+
+
 # ---------------------------------------------------------------- edge events
 
 def _episodes(rows, ignore=None):
@@ -573,7 +636,7 @@ def apply_notes(findings: list[Finding], notes: list[dict], s: Settings) -> list
 # ---------------------------------------------------------------- all
 
 DERIVERS = (solar_path, early_float, soc_honesty, alternator_overshoot, joint_heating,
-            pack_imbalance, edge_findings)
+            pack_imbalance, engine_faults, def_low, edge_findings)
 
 
 def derive(conn: sqlite3.Connection, s: Settings, now: int,

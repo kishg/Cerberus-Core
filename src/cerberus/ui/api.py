@@ -32,6 +32,11 @@ SNAPSHOT_STALE_S = 60
 # Data older than this is "not live" even if the collector is up (Cerbo off
 # the network, packs out of BLE range).
 LIVE_STALE_S = 180
+# An RPM reading older than this means the engine is off (the OBD reader polls
+# every 2 s while it runs and goes quiet when it stops).
+ENGINE_STALE_S = 30
+# Below this speed with the engine running, the van is idling.
+IDLE_MPH = 2.0
 # SoC is a coulomb count that only re-syncs at a true full charge; on this
 # rig it drifted ~15 points in a few weeks (2026-10-21). Past this many days
 # without one, the UI says the figure may read high.
@@ -100,6 +105,7 @@ def now_view(conn: sqlite3.Connection, ctx: Context, now: int | None = None,
         "time_to_empty_h": None,
         "cabin": None,
         "outside": None,
+        "vehicle": vehicle_view(conn, now),
         # Open findings only, briefly; /api/findings has the full cards.
         # Ones the owner marked known are counted, not listed.
         "findings": [
@@ -123,6 +129,40 @@ def now_view(conn: sqlite3.Connection, ctx: Context, now: int | None = None,
     if row:
         out["outside"] = {"ts": row[0], "air_temp_f": row[1], "humidity_pct": row[2]}
     return out
+
+
+def _latest_obd(conn: sqlite3.Connection, name: str):
+    return conn.execute(
+        "SELECT ts, value FROM obd_samples WHERE name = ? AND value IS NOT NULL "
+        "ORDER BY ts DESC LIMIT 1", (name,)).fetchone()
+
+
+def vehicle_view(conn: sqlite3.Connection, now: int) -> dict | None:
+    """The chassis side: chassis battery voltage (from the ACR, which reads it
+    every few seconds), engine state, fuel and DEF (from OBD, as of the last
+    time the engine ran). None when the van reports none of it."""
+    out: dict = {}
+    row = conn.execute(
+        "SELECT ts, chassis_v_cv, field7 FROM acr_samples "
+        "WHERE chassis_v_cv IS NOT NULL ORDER BY ts DESC LIMIT 1").fetchone()
+    if row and now - row[0] <= LIVE_STALE_S:
+        # field7 = 1 while the ACR joins chassis and house (then both read the same).
+        out["chassis"] = {"ts": row[0], "voltage": round(row[1] / 100.0, 2),
+                          "linked": row[2] == 1}
+    rpm = _latest_obd(conn, "rpm")
+    if rpm:
+        speed = _latest_obd(conn, "speed_mph")
+        running = now - rpm[0] <= ENGINE_STALE_S and rpm[1] > 0
+        state = "off"
+        if running:
+            state = "driving" if speed and speed[1] >= IDLE_MPH else "idling"
+        out["engine"] = {"ts": rpm[0], "state": state, "rpm": rpm[1] if running else None,
+                         "speed_mph": speed[1] if running and speed else None}
+    for key, name in (("fuel", "fuel_level_pct"), ("def", "def_level_pct")):
+        r = _latest_obd(conn, name)
+        if r:
+            out[key] = {"ts": r[0], "pct": round(r[1], 0)}
+    return out or None
 
 
 def findings_view(conn: sqlite3.Connection, ctx: Context, now: int | None = None,
