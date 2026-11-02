@@ -248,6 +248,16 @@ CREATE TABLE IF NOT EXISTS vehicle_samples (
   ts INTEGER NOT NULL, source TEXT NOT NULL, name TEXT NOT NULL, value REAL,
   PRIMARY KEY (ts, source, name)
 );
+-- Full-rate Dc/0 voltage and current around alarms and heavy loads
+-- (cerberus.fastcapture). series is e.g. vebus/276/Voltage, battery/1/Current.
+CREATE TABLE IF NOT EXISTS fast_samples (
+  ts REAL NOT NULL, series TEXT NOT NULL, value REAL NOT NULL,
+  PRIMARY KEY (ts, series)
+);
+CREATE TABLE IF NOT EXISTS fast_windows (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  start_ts REAL NOT NULL, end_ts REAL, reason TEXT NOT NULL
+);
 -- Trouble codes read once per engine-on session. Read-only (services 03/07);
 -- nothing here ever clears a code. codes is comma-separated, '' = none.
 CREATE TABLE IF NOT EXISTS obd_dtcs (
@@ -657,6 +667,36 @@ class Db:
         except sqlite3.Error as e:
             log.error("vehicle_samples insert failed: %s", e)
             return 0
+
+    def insert_fast_samples(self, rows: list[tuple[float, str, float]]) -> None:
+        try:
+            self.conn.executemany(
+                "INSERT OR REPLACE INTO fast_samples (ts, series, value) VALUES (?, ?, ?)", rows)
+        except sqlite3.Error as e:
+            log.error("fast_samples insert failed: %s", e)
+
+    def open_fast_window(self, start_ts: float, reason: str) -> int | None:
+        try:
+            cur = self.conn.execute(
+                "INSERT INTO fast_windows (start_ts, reason) VALUES (?, ?)", (start_ts, reason))
+            return cur.lastrowid
+        except sqlite3.Error as e:
+            log.error("fast_windows insert failed: %s", e)
+            return None
+
+    def update_fast_window(self, window_id: int, end_ts: float | None, reason: str) -> None:
+        try:
+            self.conn.execute("UPDATE fast_windows SET end_ts = COALESCE(?, end_ts), reason = ? "
+                              "WHERE id = ?", (end_ts, reason, window_id))
+        except sqlite3.Error as e:
+            log.error("fast_windows update failed: %s", e)
+
+    def prune_fast_samples(self, before_ts: float) -> None:
+        try:
+            self.conn.execute("DELETE FROM fast_samples WHERE ts < ?", (before_ts,))
+            self.conn.execute("DELETE FROM fast_windows WHERE start_ts < ?", (before_ts,))
+        except sqlite3.Error as e:
+            log.error("fast capture prune failed: %s", e)
 
     def insert_dtcs(self, ts: int, service: str, codes: list[str] | None,
                     raw: str | None) -> None:

@@ -25,6 +25,8 @@ client, a publisher, a syncer and five detectors, none of which _on_ac touches.
 
 from __future__ import annotations
 
+import types
+
 from cerberus.__main__ import Cerberus
 from cerberus.ac import AcState
 
@@ -52,6 +54,8 @@ def _app(downsample: int = 30) -> Cerberus:
     app.db = _FakeDb()
     app.publisher = _FakePublisher()
     app.last_ac_sample_ts = 0
+    app.last_fast_load_ts = 0.0
+    app.fast = types.SimpleNamespace(on_load=lambda w: None)
     app.last_ac_publish_ts = 0
 
     class _Storage:

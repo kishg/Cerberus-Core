@@ -24,6 +24,7 @@ from . import heater as heater_mod
 from . import live as live_mod
 from .ha_mqtt import HaBroker, NoBroker
 from . import vehicle as vehicle_mod
+from . import fastcapture as fastcapture_mod
 from . import vrm_cloud
 from . import solar_path as solar_path_mod
 from .ac import AcState
@@ -110,6 +111,8 @@ class Cerberus:
             float_state=int(cfg.thresholds.get("solar_open_float_state", 5)),
         )
         self.alarms = AlarmState()
+        self.fast = fastcapture_mod.FastCapture(self.db, cfg.fast_capture)
+        self.last_fast_load_ts: float = 0.0
         self.ac = AcState()
         self.solar = SolarState()
         self.bank: BankState | None = None
@@ -176,6 +179,7 @@ class Cerberus:
             on_temperature=self._on_temperature,
             on_wifi=self._on_wifi,
             on_location=self._on_location,
+            on_dc=self._on_dc,
             # Cerberus's own topics go to HA's broker below, not the Cerbo.
             own_topics=False,
         )
@@ -558,6 +562,8 @@ class Cerberus:
         if alarm_id is None:
             return
         events = self.alarms.update(alarm_id, value, int(time.time()))
+        if events:
+            self.fast.on_alarm(alarm_id)
         for ev in events:
             self.db.insert_event(ev)
             try:
@@ -578,6 +584,11 @@ class Cerberus:
         if not self.ac.update(topic, value):
             return
         now = int(time.time())
+
+        # About once a second: this callback fires many times a second.
+        if time.monotonic() - self.last_fast_load_ts >= 1.0:
+            self.last_fast_load_ts = time.monotonic()
+            self.fast.on_load(self.ac.total_consumption_w)
 
         if now - self.last_ac_publish_ts >= AC_PUBLISH_PERIOD:
             self.last_ac_publish_ts = now
@@ -775,6 +786,7 @@ class Cerberus:
                 if self.cfg.drives.enabled:
                     self._drives_tick()
                 self._heater_tick()
+                self.fast.tick()
                 self._phone_tick()
                 self._snapshot_tick(online)
                 self._uptime_tick()
@@ -826,6 +838,7 @@ class Cerberus:
                 on_temperature=self._on_temperature,
                 on_wifi=self._on_wifi,
                 on_location=self._on_location,
+                on_dc=self._on_dc,
                 tls_context=vrm_cloud.tls_context(),
                 own_topics=False,
             )
@@ -988,6 +1001,9 @@ class Cerberus:
             )
         except Exception:
             log.exception("insert_cabin_sample (govee cloud) failed")
+
+    def _on_dc(self, topic: str, value) -> None:
+        self.fast.on_dc(topic, value)
 
     def _on_ha_import(self, topic: str, payload: bytes) -> None:
         """A vehicle snapshot from ha_mqtt.import_topics (cerberus.vehicle).

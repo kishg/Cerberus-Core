@@ -427,6 +427,16 @@ ui:
   # run a modified Cerberus that others use.
   source_url: https://github.com/kishg/Cerberus-Core
 
+fast_capture:
+  # Full-rate Dc/0 voltage and current (packs, inverter, MPPT) from 60 s before
+  # to 60 s after any Victron alarm, and during heavy AC load (the heater
+  # thresholds), in fast_samples. On by default; these are the defaults.
+  # enabled: true
+  # pre_seconds: 60
+  # post_seconds: 60
+  # min_interval_seconds: 0.25
+  # retention_days: 90
+
 ha_mqtt:
   # Home Assistant's mosquitto (ha-stack, published on 127.0.0.1 only). State,
   # events and discovery go here directly; before 2026-10-20 they went to the
