@@ -92,6 +92,9 @@ nav a[aria-current="page"] { color: var(--text); border-bottom-color: var(--text
 .hero .value { font-size: 56px; font-weight: 600; line-height: 1; }
 .hero .label { color: var(--text-2); }
 .trust { display: flex; align-items: center; gap: 6px; margin-top: 10px; font-size: 13px; color: var(--text-2); }
+.tyre-diagram { display: block; width: 100%; max-width: 340px; margin: 8px auto 0; }
+.tyre-psi { font-size: 20px; font-weight: 600; }
+.tyre-note { font-size: 12px; }
 .tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 @media (min-width: 640px) { .tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
 .tile { margin-bottom: 0; }

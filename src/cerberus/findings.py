@@ -453,6 +453,20 @@ def starter_battery(conn, s: Settings, now: int) -> list[Finding]:
         first_seen=bad[0][0], last_seen=bts)]
 
 
+def low_tyres(conn, now: int) -> dict[str, tuple[int, float, float]]:
+    """Tyres clearly below their own 30-day level: name -> (ts, psi, median)."""
+    low = {}
+    for name in _TYRES:
+        rows = _vehicle_series(conn, name, now - 30 * DAY)
+        if len(rows) < 5:
+            continue
+        med = _median([v for _, v in rows[:-1]])
+        ts, v = rows[-1]
+        if med and v <= med * (1 - TYRE_DROP_PCT / 100):
+            low[name] = (ts, v, med)
+    return low
+
+
 def tyre_pressure(conn, s: Settings, now: int) -> list[Finding]:
     """The van's tyre warning, or a tyre clearly below its own recent level."""
     problems, last_bad, first_bad = [], None, None
@@ -463,16 +477,10 @@ def tyre_pressure(conn, s: Settings, now: int) -> list[Finding]:
             last_bad, first_bad = hits[-1], hits[0]
         if warn[-1][1] >= 1:
             problems.append("the van's tyre-pressure warning is on")
-    for name, where in _TYRES.items():
-        rows = _vehicle_series(conn, name, now - 30 * DAY)
-        if len(rows) < 5:
-            continue
-        med = _median([v for _, v in rows[:-1]])
-        ts, v = rows[-1]
-        if med and v <= med * (1 - TYRE_DROP_PCT / 100):
-            problems.append(f"{where} is at {v:.0f} psi, down from {med:.0f} psi")
-            last_bad = max(last_bad or 0, ts)
-            first_bad = min(first_bad or ts, ts)
+    for name, (ts, v, med) in low_tyres(conn, now).items():
+        problems.append(f"{_TYRES[name]} is at {v:.0f} psi, down from {med:.0f} psi")
+        last_bad = max(last_bad or 0, ts)
+        first_bad = min(first_bad or ts, ts)
     status = _status_for(last_bad, bool(problems), now)
     if status is None:
         return []

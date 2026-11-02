@@ -220,13 +220,11 @@ function renderChassis(d) {
   }
   document.getElementById("chassis-checks-card").hidden = !checks.children.length;
 
-  const ty = d.tyres, tb = document.querySelector("#chassis-tyres tbody");
-  tb.replaceChildren();
+  const ty = d.tyres, tyreBox = document.getElementById("chassis-tyres");
+  tyreBox.replaceChildren();
   document.getElementById("chassis-tyres-card").hidden = !ty;
   if (ty) {
-    const tr = el("tr");
-    for (const pos of ["fl", "fr", "rl", "rr"]) tr.append(el("td", {}, ty[pos] ? `${fmtNum(ty[pos].value, 0)} psi` : "–"));
-    tb.append(tr);
+    tyreBox.append(tyreDiagram(ty));
     const newest = Math.max(...["fl", "fr", "rl", "rr"].map((p) => (ty[p] ? ty[p].ts : 0)));
     document.getElementById("chassis-tyres-sub").textContent =
       `${ty.warning ? "Tyre-pressure warning on. " : ""}Last reported ${ago(newest, d.now)} (the van sends pressures after driving).`;
@@ -244,7 +242,41 @@ function renderChassis(d) {
       el("td", {}, r.coolant_max_c == null ? "–" : `${fmtNum(r.coolant_max_c, 0)}°C`));
     db.append(tr);
   }
-  document.getElementById("chassis-empty").hidden = !!(tiles.children.length || d.drives.length);
+  document.getElementById("chassis-empty").hidden = !!(tiles.children.length || d.drives.length || ty);
+}
+
+// The van from above, front at the top, each tyre's pressure beside it.
+const TYRE_SPOTS = [
+  { pos: "fl", name: "Front left", y: 62, side: -1 },
+  { pos: "fr", name: "Front right", y: 62, side: 1 },
+  { pos: "rl", name: "Rear left", y: 204, side: -1 },
+  { pos: "rr", name: "Rear right", y: 204, side: 1 },
+];
+
+function tyreDiagram(ty) {
+  const psi = (t) => (t ? `${fmtNum(t.value, 0)} psi` : "–");
+  const s = svg("svg", {
+    class: "tyre-diagram", viewBox: "0 0 300 300", role: "img",
+    "aria-label": "Tyre pressures from above: " + TYRE_SPOTS.map(({ pos, name }) =>
+      `${name.toLowerCase()} ${psi(ty[pos])}${ty[pos] && ty[pos].low_from != null ? " (low)" : ""}`).join(", "),
+  });
+  const label = (x, y, anchor, cls, fill, text) => {
+    const t = svg("text", { x, y, "text-anchor": anchor, class: cls, fill });
+    t.textContent = text;
+    return t;
+  };
+  s.append(label(150, 14, "middle", "tyre-note", "var(--text-2)", "Front"),
+    svg("rect", { x: 105, y: 22, width: 90, height: 266, rx: 24, fill: "var(--grid)", stroke: "var(--axis)", "stroke-width": 1.5 }),
+    svg("path", { d: "M117 86q33-14 66 0l-6 24q-27-9-54 0z", fill: "var(--axis)" }));
+  for (const { pos, name, y, side } of TYRE_SPOTS) {
+    const t = ty[pos], low = !!t && t.low_from != null;
+    const x = side < 0 ? 85 : 215, anchor = side < 0 ? "end" : "start";
+    s.append(svg("rect", { x: side < 0 ? 93 : 195, y, width: 12, height: 44, rx: 3, fill: low ? "var(--warning)" : "var(--text-2)" }),
+      label(x, y + 18, anchor, "tyre-psi", "var(--text)", psi(t)),
+      label(x, y + 35, anchor, "tyre-note", "var(--text-2)", name));
+    if (low) s.append(label(x, y + 51, anchor, "tyre-note", "var(--text)", `Low, was ${fmtNum(t.low_from, 0)}`));
+  }
+  return s;
 }
 
 async function loadChassis() {
