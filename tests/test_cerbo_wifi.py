@@ -47,6 +47,7 @@ class _MqttCfg:
 
 def _dispatcher(calls):
     m = CerboMqtt.__new__(CerboMqtt)
+    m.on_dc = None
     m.cfg = _MqttCfg()
     m.on_wifi = lambda t, v: calls.append(("wifi", t, v))
     m.on_ac = lambda t, v: calls.append(("ac", t, v))

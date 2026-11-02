@@ -109,6 +109,7 @@ def _collector(monkeypatch, email=lambda tok: "me@example.com"):
         _on_batteries=noop, _on_heartbeat=noop, _on_alarm=noop, _on_ac=noop,
         _on_solar=noop, _on_battery_health=noop, _on_temperature=noop, _on_wifi=noop,
         _on_location=noop,
+        _on_dc=noop,
     )
 
 

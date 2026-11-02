@@ -11,6 +11,7 @@ import yaml
 from . import detectors as detectors_mod
 from . import drives as drives_mod
 from . import envfile as envfile_mod
+from . import fastcapture as fastcapture_mod
 from . import geocode as geocode_mod
 from . import heater as heater_mod
 from . import location as location_mod
@@ -268,6 +269,7 @@ class Config:
     ha_mqtt: HaMqttConfig = HaMqttConfig()
     solar_path: solar_path_mod.Settings = solar_path_mod.DEFAULT_SETTINGS
     heater: heater_mod.Settings = heater_mod.DEFAULT_SETTINGS
+    fast_capture: fastcapture_mod.Settings = fastcapture_mod.Settings()
     bank: BankConfig = BankConfig()
     system: profile_mod.VoltageProfile = profile_mod.DEFAULT_PROFILE
     solar: SolarArrayConfig = SolarArrayConfig()
@@ -443,6 +445,28 @@ def _parse_solar_path(raw: dict, prof: profile_mod.VoltageProfile,
             f"solar_path.process_after_hour must be 0-23 (got {settings.process_after_hour})"
         )
     return settings
+
+
+def _parse_fast_capture(raw: dict, heater: heater_mod.Settings) -> fastcapture_mod.Settings:
+    """fast_capture: on by default; "heavy load" is the heater rule."""
+    r = raw.get("fast_capture") or {}
+    d = fastcapture_mod.Settings()
+    try:
+        s = fastcapture_mod.Settings(
+            enabled=_parse_bool(r.get("enabled", d.enabled), "fast_capture.enabled"),
+            pre_seconds=float(r.get("pre_seconds", d.pre_seconds)),
+            post_seconds=float(r.get("post_seconds", d.post_seconds)),
+            min_interval_seconds=float(r.get("min_interval_seconds", d.min_interval_seconds)),
+            retention_days=float(r.get("retention_days", d.retention_days)),
+            on_delta_w=heater.on_delta_w, off_delta_w=heater.off_delta_w,
+            baseline_max_w=heater.baseline_max_w,
+            default_baseline_w=heater.default_baseline_w,
+        )
+    except (TypeError, ValueError) as err:
+        raise ConfigError(f"fast_capture: {err}") from None
+    if s.pre_seconds < 0 or s.post_seconds < 0 or s.min_interval_seconds < 0 or s.retention_days <= 0:
+        raise ConfigError("fast_capture: seconds can't be negative, retention_days must be > 0")
+    return s
 
 
 def _parse_heater(raw: dict, bank: BankConfig) -> heater_mod.Settings:
@@ -822,6 +846,7 @@ user_agent=str(w_raw.get("user_agent", DEFAULT_WEATHER_UA)).strip(),
         ),
         solar_path=_parse_solar_path(raw, system, bank),
         heater=_parse_heater(raw, bank),
+        fast_capture=_parse_fast_capture(raw, _parse_heater(raw, bank)),
         bank=bank,
         system=system,
         solar=solar,

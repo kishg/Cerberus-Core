@@ -54,6 +54,7 @@ class CerboMqtt:
         on_battery_health: Callable[[str, object], None] | None = None,
         on_temperature: Callable[[str, object], None] | None = None,
         on_wifi: Callable[[str, object], None] | None = None,
+        on_dc: Callable[[str, object], None] | None = None,
         on_location: Callable[[str, object], None] | None = None,
         tls_context: ssl.SSLContext | None = None,
         own_topics: bool = True,
@@ -68,6 +69,7 @@ class CerboMqtt:
         self.on_battery_health = on_battery_health
         self.on_temperature = on_temperature
         self.on_wifi = on_wifi
+        self.on_dc = on_dc
         self.on_location = on_location
         self.availability_topic = f"{cfg.publish_namespace}/availability"
         # False for the VRM cloud relay: its ACL only admits the installation's
@@ -509,6 +511,14 @@ class CerboMqtt:
 
         value = payload.get("value") if isinstance(payload, dict) else None
         topic = msg.topic
+
+        # Every Dc/0 message, for cerberus.fastcapture; the branches below fold
+        # the ones they care about into state as usual.
+        if self.on_dc is not None and "/Dc/0/" in topic:
+            try:
+                self.on_dc(topic, value)
+            except Exception:
+                log.exception("on_dc handler raised")
 
         if topic.endswith(f"/{self.cfg.primary_topic}"):
             if isinstance(value, list):
