@@ -211,6 +211,10 @@ def chassis_view(conn: sqlite3.Connection, ctx: Context, now: int | None = None,
     if out["tyres"] is not None:
         w = latest("tire_warning")
         out["tyres"]["warning"] = None if w is None else bool(w["value"])
+        for name, (_, _, med) in findings_mod.low_tyres(conn, now).items():
+            tyre = tyres[name.split("_")[1]]
+            if tyre is not None:
+                tyre["low_from"] = med
     sb = latest("starter_battery_state")
     out["starter_battery"] = None if sb is None else {
         "ts": sb["ts"], "state": int(sb["value"]),
