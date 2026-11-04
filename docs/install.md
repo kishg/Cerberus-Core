@@ -36,7 +36,7 @@ On the mini PC, from a checkout of this repository:
 
 ```sh
 git clone https://github.com/kishg/Cerberus-Core.git
-cd Cerberus/cerberus
+cd Cerberus-Core
 sudo bin/install-linux.sh
 ```
 
