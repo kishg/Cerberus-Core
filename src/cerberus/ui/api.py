@@ -51,10 +51,12 @@ class Context:
     tz_name: str | None = None
     path_limit_mohm: float = findings_mod.Settings.path_limit_mohm
     full_remind_days: float = findings_mod.Settings.full_remind_days
+    def_low_pct: float = findings_mod.Settings.def_low_pct
 
     def findings_settings(self) -> findings_mod.Settings:
         return findings_mod.Settings(tz=self.tz, path_limit_mohm=self.path_limit_mohm,
-                                     full_remind_days=self.full_remind_days)
+                                     full_remind_days=self.full_remind_days,
+                                     def_low_pct=self.def_low_pct)
 
 
 def _kv(conn: sqlite3.Connection, key: str) -> str | None:

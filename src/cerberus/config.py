@@ -330,6 +330,19 @@ def _parse_bool(value, name: str) -> bool:
     raise ConfigError(f"{name}: expected true or false (got {value!r})")
 
 
+def _parse_def_low_pct(raw: dict) -> float:
+    """thresholds.def_low_pct: the AdBlue level that opens the def_low
+    finding. Default 20; owners who keep the tank fuller set it higher."""
+    value = (raw.get("thresholds") or {}).get("def_low_pct", 20)
+    try:
+        pct = float(value)
+    except (TypeError, ValueError):
+        raise ConfigError(f"thresholds.def_low_pct: {value!r} is not a number") from None
+    if not 0 < pct < 100:
+        raise ConfigError(f"thresholds.def_low_pct must be between 0 and 100 (got {value})")
+    return pct
+
+
 def _parse_zip(value) -> str | None:
     if value is None or str(value).strip() == "":
         return None
@@ -500,6 +513,7 @@ class UiConfig:
     timezone: str | None = None
     path_limit_mohm: float = 75.0
     full_remind_days: float = 30.0
+    def_low_pct: float = 20.0
     # Net charge current that means another charger is on (bank.charge_on_a):
     # the UI's "is the van moving" test for phone positions (cerberus.phonefix).
     charge_on_a: float = 20.0
@@ -579,6 +593,7 @@ def load_ui(path: str | Path) -> UiConfig:
         timezone=_parse_timezone(raw),
         path_limit_mohm=solar_path.path_limit_mohm,
         full_remind_days=float((raw.get("full_charge") or {}).get("remind_after_days", 30)),
+        def_low_pct=_parse_def_low_pct(raw),
         source_url=str(u.get("source_url", UiConfig.source_url)),
         charge_on_a=bank.charge_on_a,
     )
@@ -821,6 +836,7 @@ user_agent=str(w_raw.get("user_agent", DEFAULT_WEATHER_UA)).strip(),
             solar.array_voc_v, solar.array_w).items():
         thresholds.setdefault(key, value)
     thresholds.setdefault("solar_open_charging_guard_a", bank.charge_on_a)
+    thresholds["def_low_pct"] = _parse_def_low_pct(raw)
     full_charge = dict(raw.get("full_charge") or {})
     full_charge.setdefault("absorption_voltage_min", system.full_min_v)
 

@@ -53,6 +53,7 @@ class Settings:
     full_soc_pct: float = 98.0          # floating below this is an early float
     soc_trust_days: float = 7.0
     full_remind_days: float = 30.0
+    def_low_pct: float = 20.0           # thresholds.def_low_pct
 
 
 @dataclass
@@ -350,10 +351,6 @@ def pack_imbalance(conn, s: Settings, now: int) -> list[Finding]:
 
 # ---------------------------------------------------------------- engine (OBD)
 
-# DEF (AdBlue) under this is worth a refill before a trip: an empty tank puts
-# a modern diesel into a speed-limited mode.
-DEF_LOW_PCT = 15.0
-
 
 def engine_faults(conn, s: Settings, now: int) -> list[Finding]:
     """Trouble codes the engine reported, read once per engine-on session
@@ -387,20 +384,25 @@ def engine_faults(conn, s: Settings, now: int) -> list[Finding]:
 
 
 def def_low(conn, s: Settings, now: int) -> list[Finding]:
-    """Diesel exhaust fluid running low, from the OBD tank level."""
-    rows = conn.execute(
+    """Diesel exhaust fluid (AdBlue) under s.def_low_pct, worth a refill
+    before a trip: an empty tank puts a modern diesel into a speed-limited
+    mode. Reads the OBD tank level and the imported one (cerberus.vehicle),
+    whichever is newer, since the import also covers parked time."""
+    rows = sorted(conn.execute(
         "SELECT ts, value FROM obd_samples WHERE name = 'def_level_pct' AND value IS NOT NULL "
-        "ORDER BY ts").fetchall()
+        "UNION ALL SELECT ts, value FROM vehicle_samples "
+        "WHERE name = 'def_level_pct' AND value IS NOT NULL").fetchall())
     if not rows:
         return []
-    low = [(ts, v) for ts, v in rows if v < DEF_LOW_PCT]
+    limit = s.def_low_pct
+    low = [(ts, v) for ts, v in rows if v < limit]
     ts, v = rows[-1]
-    status = _status_for(low[-1][0] if low else None, v < DEF_LOW_PCT, now)
+    status = _status_for(low[-1][0] if low else None, v < limit, now)
     if status is None:
         return []
     lts, lv = low[-1]
-    explain = (f"The DEF (AdBlue) tank read {lv:.0f}% on {_day(lts, s.tz)}. When it runs "
-               f"empty the engine limits the van's speed until it is refilled.")
+    explain = (f"The DEF (AdBlue) tank read {lv:.0f}% on {_day(lts, s.tz)}, under the "
+               f"{limit:.0f}% alert level. When it runs empty the engine limits the van's speed until it is refilled.")
     if status == RESOLVED:
         explain += f" It read {v:.0f}% on {_day(ts, s.tz)}."
     return [Finding(

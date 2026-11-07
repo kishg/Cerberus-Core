@@ -99,7 +99,8 @@ class App:
     def __init__(self, db_path: str, pack_count: int, capacity_ah: float | None,
                  tz_name: str | None, path_limit_mohm: float = 75.0,
                  full_remind_days: float = 30.0, source_url: str = "",
-                 config_path: str | None = None, charge_on_a: float = 20.0):
+                 config_path: str | None = None, charge_on_a: float = 20.0,
+                 def_low_pct: float = 20.0):
         self.db_path = db_path
         self.pack_count = pack_count
         self.capacity_ah = capacity_ah
@@ -109,6 +110,7 @@ class App:
         self.source_url = source_url
         self.config_path = config_path
         self.charge_on_a = charge_on_a
+        self.def_low_pct = def_low_pct
         self.sessions = auth.Sessions(config_path) if config_path else None
         self.static = load_static()
 
@@ -118,7 +120,8 @@ class App:
         return cls(db_path, pack_count=ui.pack_count, capacity_ah=ui.capacity_ah,
                    tz_name=ui.timezone, path_limit_mohm=ui.path_limit_mohm,
                    full_remind_days=ui.full_remind_days, source_url=ui.source_url,
-                   config_path=config_path, charge_on_a=ui.charge_on_a)
+                   config_path=config_path, charge_on_a=ui.charge_on_a,
+                   def_low_pct=ui.def_low_pct)
 
     def reload(self) -> None:
         """Pick up a settings change without restarting (sessions survive)."""
@@ -127,6 +130,7 @@ class App:
         self.configured_tz, self.path_limit_mohm = ui.timezone, ui.path_limit_mohm
         self.full_remind_days, self.source_url = ui.full_remind_days, ui.source_url
         self.charge_on_a = ui.charge_on_a
+        self.def_low_pct = ui.def_low_pct
 
     def learned(self, conn: sqlite3.Connection, now: int) -> dict:
         """cerberus.learn's proposals, cached: they read 90 days of history
@@ -146,7 +150,8 @@ class App:
         return api.Context(pack_count=self.pack_count, capacity_ah=self.capacity_ah,
                            tz=location.zone(name), tz_name=name,
                            path_limit_mohm=self.path_limit_mohm,
-                           full_remind_days=self.full_remind_days)
+                           full_remind_days=self.full_remind_days,
+                           def_low_pct=self.def_low_pct)
 
 
 def make_handler(app: App):

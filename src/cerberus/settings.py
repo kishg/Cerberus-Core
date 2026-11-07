@@ -94,6 +94,10 @@ SETTINGS = (
             "The Cerbo temperature probe on a joint in the charging path (its device "
             "instance). Drive reports watch how hot it gets. Empty if there is none.",
             "number", optional=True, getter=lambda c: c.drives.settings.joint_temp_instance),
+    Setting("thresholds.def_low_pct", "Driving", "AdBlue (DEF) alert level",
+            "Flag the AdBlue tank below this level. 20% leaves room for a trip; set it "
+            "higher if you keep the tank fuller.",
+            "number", "%", getter=lambda c: c.thresholds["def_low_pct"]),
     Setting("system.timezone", "Location", "Time zone",
             "An IANA zone such as America/Denver. Leave empty to follow the Cerbo's own "
             "setting.", "text", optional=True, getter=lambda c: c.timezone),
