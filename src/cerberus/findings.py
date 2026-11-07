@@ -54,6 +54,7 @@ class Settings:
     soc_trust_days: float = 7.0
     full_remind_days: float = 30.0
     def_low_pct: float = 20.0           # thresholds.def_low_pct
+    service_due_mi: float = 500.0       # thresholds.service_due_mi
 
 
 @dataclass
@@ -496,6 +497,36 @@ def tyre_pressure(conn, s: Settings, now: int) -> list[Finding]:
         first_seen=first_bad, last_seen=last_bad)]
 
 
+def service_due(conn, s: Settings, now: int) -> list[Finding]:
+    """The chassis's own service countdown (imported), once it is under
+    s.service_due_mi. Resolves when a service resets it."""
+    rows = _vehicle_series(conn, "service_due_mi")
+    if not rows:
+        return []
+    limit = s.service_due_mi
+    due = [(ts, v) for ts, v in rows if v < limit]
+    ts, v = rows[-1]
+    status = _status_for(due[-1][0] if due else None, v < limit, now)
+    if status is None:
+        return []
+    dts, dv = due[-1]
+    if status == RESOLVED:
+        explain = (f"The van's next service was {dv:.0f} mi away on {_day(dts, s.tz)}; "
+                   f"it now reads {v:.0f} mi, so the countdown has been reset.")
+    elif v <= 0:
+        explain = f"The van reports its service is due now ({_day(ts, s.tz)})."
+    else:
+        explain = (f"The van's next service is {v:.0f} mi away ({_day(ts, s.tz)}), under "
+                   f"the {limit:.0f} mi reminder level.")
+    return [Finding(
+        key="service_due", severity=ATTENTION if status == OPEN and v <= 0 else INFO,
+        status=status,
+        title="A service is coming up",
+        explain=explain,
+        action="Book the service." if status == OPEN else "Nothing to do now.",
+        first_seen=due[0][0], last_seen=dts)]
+
+
 def vehicle_fluids(conn, s: Settings, now: int) -> list[Finding]:
     """Coolant, brake fluid and washer warnings from the chassis."""
     names = {"coolant_low": ("coolant", ATTENTION), "brake_fluid_low": ("brake fluid", ATTENTION),
@@ -752,7 +783,7 @@ def apply_notes(findings: list[Finding], notes: list[dict], s: Settings) -> list
 
 DERIVERS = (solar_path, early_float, soc_honesty, alternator_overshoot, joint_heating,
             pack_imbalance, engine_faults, def_low, starter_battery, tyre_pressure,
-            vehicle_fluids, edge_findings)
+            service_due, vehicle_fluids, edge_findings)
 
 
 def derive(conn: sqlite3.Connection, s: Settings, now: int,

@@ -210,6 +210,21 @@ def test_def_low_opens_under_the_threshold_and_resolves_after_a_refill(db):
     assert f.status == "resolved" and "It read 95% on Oct 30" in f.explain
 
 
+def test_service_due_opens_under_the_level_and_resolves_after_a_service(db):
+    db.insert_vehicle_samples(NOW - 3 * DAY, "mercedes_me", {"service_due_mi": 590.0})
+    assert "service_due" not in _keys(db)                   # default 500 mi
+    db.insert_vehicle_samples(NOW - 2 * DAY, "mercedes_me", {"service_due_mi": 450.0})
+    f = _keys(db)["service_due"]
+    assert f.status == "open" and f.severity == "info" and "450 mi away" in f.explain
+    db.insert_vehicle_samples(NOW - DAY, "mercedes_me", {"service_due_mi": 0.0})
+    assert _keys(db)["service_due"].severity == "attention"
+    db.insert_vehicle_samples(NOW - 3600, "mercedes_me", {"service_due_mi": 9300.0})
+    f = _keys(db)["service_due"]
+    assert f.status == "resolved" and "reset" in f.explain
+    far = F.Settings(tz=NY, service_due_mi=10000.0)
+    assert {f.key: f for f in F.derive(db.conn, far, NOW)}["service_due"].status == "open"
+
+
 def test_def_low_uses_the_configured_level_and_the_imported_reading(db):
     db.insert_vehicle_samples(NOW - DAY, "mercedes_me", {"def_level_pct": 45.0})
     assert "def_low" not in _keys(db)                       # default 20%

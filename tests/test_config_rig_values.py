@@ -134,6 +134,15 @@ def test_def_low_pct_defaults_to_20_and_reaches_the_ui(tmp_path, monkeypatch):
     assert cfg_mod.load(p).thresholds["def_low_pct"] == cfg_mod.load_ui(p).def_low_pct == 50.0
 
 
+def test_service_due_mi_defaults_to_500_and_must_be_positive(tmp_path, monkeypatch):
+    monkeypatch.setenv("CERBERUS_MQTT_PASSWORD", "pw")
+    p = _write(tmp_path, MINIMAL)
+    assert cfg_mod.load(p).thresholds["service_due_mi"] == cfg_mod.load_ui(p).service_due_mi == 500.0
+    p = _write(tmp_path, MINIMAL + "    thresholds:\n      service_due_mi: 0\n")
+    with pytest.raises(cfg_mod.ConfigError, match="service_due_mi"):
+        cfg_mod.load_ui(p)
+
+
 @pytest.mark.parametrize("value", [0, 100, -5, "lots"])
 def test_def_low_pct_must_be_a_percentage(tmp_path, monkeypatch, value):
     monkeypatch.setenv("CERBERUS_MQTT_PASSWORD", "pw")

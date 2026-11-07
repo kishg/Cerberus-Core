@@ -343,7 +343,38 @@ def compute_metrics(db: Db, d: Drive, settings: Settings = DEFAULT_SETTINGS) -> 
         m["weather_air_f"] = _r(wx[0], 1)
 
     _obd_metrics(db, d, m, series, settings)
+    _vehicle_metrics(db, d, m)
     return {k: v for k, v in m.items() if v is not None}
+
+
+# Imported chassis values (cerberus.vehicle) reach the database a few minutes
+# after the van reports them, so the window runs this far past the drive.
+VEHICLE_LAG_S = 300
+
+
+def _vehicle_metrics(db: Db, d: Drive, m: dict) -> None:
+    """The chassis maker's own figures for the drive, when they are imported:
+    miles from its odometer (whole miles), fuel used as a share of the tank,
+    and its trip computer. The trip resets after a long park, not per engine
+    start, so trip_* cover the outing up to the end of this drive."""
+    s, e = d.start_ts, d.end_ts + VEHICLE_LAG_S
+
+    def series(name):
+        return [v for _ts, v in db.conn.execute(
+            "SELECT ts, value FROM vehicle_samples WHERE name = ? AND value IS NOT NULL "
+            "AND ts BETWEEN ? AND ? ORDER BY ts", (name, s, e))]
+
+    odo = series("odometer_mi")
+    if len(odo) > 1:
+        m["veh_driven_mi"] = _r(odo[-1] - odo[0], 1)
+    fuel = series("fuel_level_pct")
+    # A refill during the drive makes the difference meaningless.
+    if len(fuel) > 1 and all(b <= a for a, b in zip(fuel, fuel[1:])):
+        m["veh_fuel_pct_used"] = _r(fuel[0] - fuel[-1], 1)
+    for name in ("trip_mi", "trip_mpg", "trip_time_min"):
+        vals = series(name)
+        if vals:
+            m[f"veh_{name}"] = _r(vals[-1], 1)
 
 
 def _bank_capacity(db: Db, s: int, e: int, fallback: float | None = None) -> float | None:
