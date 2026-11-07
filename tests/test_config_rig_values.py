@@ -126,6 +126,22 @@ def test_bank_charge_on_a_overrides_everything_but_drive_detection(tmp_path, mon
     assert cfg.solar_path.pack_count == cfg.bank.pack_count == 1
 
 
+def test_def_low_pct_defaults_to_20_and_reaches_the_ui(tmp_path, monkeypatch):
+    monkeypatch.setenv("CERBERUS_MQTT_PASSWORD", "pw")
+    p = _write(tmp_path, MINIMAL)
+    assert cfg_mod.load(p).thresholds["def_low_pct"] == cfg_mod.load_ui(p).def_low_pct == 20.0
+    p = _write(tmp_path, MINIMAL + "    thresholds:\n      def_low_pct: 50\n")
+    assert cfg_mod.load(p).thresholds["def_low_pct"] == cfg_mod.load_ui(p).def_low_pct == 50.0
+
+
+@pytest.mark.parametrize("value", [0, 100, -5, "lots"])
+def test_def_low_pct_must_be_a_percentage(tmp_path, monkeypatch, value):
+    monkeypatch.setenv("CERBERUS_MQTT_PASSWORD", "pw")
+    p = _write(tmp_path, MINIMAL + f"    thresholds:\n      def_low_pct: {value}\n")
+    with pytest.raises(cfg_mod.ConfigError, match="def_low_pct"):
+        cfg_mod.load_ui(p)
+
+
 @pytest.mark.parametrize("value", [0, -5, "lots"])
 def test_bank_charge_on_a_must_be_a_positive_number(tmp_path, monkeypatch, value):
     monkeypatch.setenv("CERBERUS_MQTT_PASSWORD", "pw")

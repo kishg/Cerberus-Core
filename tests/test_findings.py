@@ -208,3 +208,13 @@ def test_def_low_opens_under_the_threshold_and_resolves_after_a_refill(db):
     _obd(db, NOW - DAY, "def_level_pct", 95.0)
     f = _keys(db)["def_low"]
     assert f.status == "resolved" and "It read 95% on Oct 30" in f.explain
+
+
+def test_def_low_uses_the_configured_level_and_the_imported_reading(db):
+    db.insert_vehicle_samples(NOW - DAY, "mercedes_me", {"def_level_pct": 45.0})
+    assert "def_low" not in _keys(db)                       # default 20%
+    high = F.Settings(tz=NY, def_low_pct=50.0)
+    f = {f.key: f for f in F.derive(db.conn, high, NOW)}["def_low"]
+    assert f.status == "open" and "read 45% on Oct 30, under the 50% alert level" in f.explain
+    _obd(db, NOW - 2 * DAY, "def_level_pct", 90.0)          # older than the import
+    assert {f.key: f for f in F.derive(db.conn, high, NOW)}["def_low"].status == "open"

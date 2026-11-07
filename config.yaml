@@ -87,6 +87,7 @@ storage:
   sqlite_path: /data/cerberus.db
   sample_downsample_seconds: 30
 thresholds:
+  def_low_pct: 20                  # AdBlue (DEF) tank % that opens the def_low finding
   soc_drift_pct: 15
   soc_drift_sustain_min: 10
   current_share_excess_pct: 25

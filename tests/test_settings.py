@@ -40,6 +40,14 @@ def test_values_and_where_they_came_from(cfg):
     rows = _by_key(settings.current(cfg))
     assert rows["solar.array_w"]["value"] == 300 and rows["solar.array_w"]["source"] == "config"
     assert rows["system.timezone"]["value"] is None and rows["system.timezone"]["source"] == "default"
+    assert rows["thresholds.def_low_pct"]["value"] == 20
+
+
+def test_def_low_pct_is_editable_and_keeps_the_other_thresholds(cfg):
+    rows = _by_key(settings.apply(cfg, {"thresholds.def_low_pct": "50"}))
+    assert rows["thresholds.def_low_pct"]["value"] == 50
+    assert rows["thresholds.def_low_pct"]["source"] == "setup"
+    assert cfg_mod.load_ui(cfg).def_low_pct == 50.0
 
 
 def test_apply_writes_setup_yaml_and_never_touches_config(cfg):
@@ -59,6 +67,7 @@ def test_apply_writes_setup_yaml_and_never_touches_config(cfg):
     ({"solar.array_w": "lots"}, "not a number"),
     ({"solar.array_w": "-5"}, "solar"),
     ({"system.timezone": "Mars/Base"}, "timezone"),
+    ({"thresholds.def_low_pct": "150"}, "def_low_pct"),
     ({"mqtt.host": "evil"}, "not an editable setting"),
 ])
 def test_invalid_changes_write_nothing(cfg, changes, match):
