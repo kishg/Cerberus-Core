@@ -193,7 +193,7 @@ def vehicle_view(conn: sqlite3.Connection, now: int) -> dict | None:
 # Findings about the chassis rather than the house system: shown on the
 # Chassis tab as well as Findings.
 CHASSIS_FINDINGS = ("engine_faults", "def_low", "starter_battery", "tyre_pressure",
-                    "service_due", "vehicle_fluids")
+                    "service_due", "engine_light", "vehicle_fluids")
 # starter_battery_state (cerberus.vehicle): Mercedes coding.
 STARTER_LABEL = {0: "good", 4: "good to fair", 1: "fair", 3: "weak", 2: "poor"}
 # An import refreshes its warnings every few minutes. One not refreshed for
