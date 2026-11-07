@@ -286,7 +286,8 @@ def test_now_has_no_vehicle_section_any_more(db):
 def test_chassis_view_with_import_findings_and_drives(db):
     db.insert_vehicle_samples(NOW - 600, "mercedes_me", {
         "tire_fl_psi": 55, "tire_fr_psi": 55, "tire_rl_psi": 65, "tire_rr_psi": 66,
-        "tire_warning": 0, "starter_battery_state": 3, "coolant_low": 0, "lock_state": 2})
+        "tire_warning": 0, "starter_battery_state": 3, "coolant_low": 0, "lock_state": 2,
+        "service_due_mi": 590})
     db.conn.execute("INSERT INTO drives (start_ts, end_ts, source, metrics, flags, created_ts) "
                     "VALUES (?, ?, 'obd', ?, '[]', 0)",
                     (NOW - 7200, NOW - 4800, '{"odometer_driven_mi": 31.2, "alt_ah": 62, "coolant_max_c": 88}'))
@@ -295,6 +296,7 @@ def test_chassis_view_with_import_findings_and_drives(db):
     assert c["starter_battery"]["label"] == "weak"
     assert c["warnings"]["coolant_low"]["on"] is False
     assert c["lock_state"]["value"] == 2
+    assert c["service_due"] == {"ts": NOW - 600, "value": 590}    # tile, though no finding yet
     assert [f["key"] for f in c["findings"]] == ["starter_battery"]
     assert c["drives"][0]["miles"] == 31.2 and c["drives"][0]["coolant_max_c"] == 88
 
@@ -311,3 +313,4 @@ def test_chassis_view_marks_the_low_tyre(db):
 def test_chassis_view_empty_van(db):
     c = api.chassis_view(db.conn, api.Context(), NOW)
     assert c["vehicle"] is None and c["tyres"] is None and c["drives"] == []
+    assert c["service_due"] is None

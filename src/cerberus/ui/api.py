@@ -202,7 +202,7 @@ def chassis_view(conn: sqlite3.Connection, ctx: Context, now: int | None = None,
                  notes: list[dict] | None = None) -> dict:
     """The Chassis tab: engine, chassis battery, fuel, DEF and odometer
     (vehicle_view), plus what an import adds (tyres, starter battery, fluid
-    warnings, lock), the chassis findings and the last few drives."""
+    warnings, lock, service countdown), the chassis findings and the last few drives."""
     now = int(time.time()) if now is None else now
     out: dict = {"now": now, "tz": ctx.tz_name, "vehicle": vehicle_view(conn, now)}
 
@@ -231,6 +231,8 @@ def chassis_view(conn: sqlite3.Connection, ctx: Context, now: int | None = None,
     out["warnings"] = warnings or None
     lock = latest("lock_state")
     out["lock_state"] = lock
+    # Shown always, not only once service_due opens, so the countdown is visible.
+    out["service_due"] = latest("service_due_mi")
     found = findings_mod.derive(conn, ctx.findings_settings(), now, notes)
     out["findings"] = [{k: f.as_dict()[k] for k in ("key", "severity", "status", "title", "first_seen")}
                        for f in found if f.key in CHASSIS_FINDINGS]
