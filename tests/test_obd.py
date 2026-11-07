@@ -19,6 +19,7 @@ behind a matching constant.
 
 from __future__ import annotations
 
+from cerberus import obd
 from cerberus.obd import (
     PID_RPM,
     PID_SPEED,
@@ -704,3 +705,16 @@ def test_engine_mode_without_rpm_does_not_reconnect_rapidly(monkeypatch):
         monkeypatch, _engine_answers("NO DATA\r\r>"), seconds=0.5,
         acr_mode=2, parked_probe_seconds=300)
     assert Client.connects == 1
+
+
+@pytest.mark.parametrize("raw, want", [
+    # 2026-11-06, four ECUs, light off on all of them.
+    ("4101000C0000\r410100040000\r4101000C0000\r4101000FEB00\r\r>", 0.0),
+    ("4101000C0000\r410183040000\r\r>", 1.0),     # the second ECU has it on
+    ("0101\r410180040000\r>", 1.0),                # echo on
+    ("NO DATA\r>", None),
+    ("SEARCHING...\r>", None),
+])
+def test_mil_reads_every_ecu_reply(raw, want):
+    spec = next(s for s in obd.STANDARD_CATALOG if s.name == "mil_on")
+    assert obd.decode_spec(spec, raw) == want

@@ -527,6 +527,32 @@ def service_due(conn, s: Settings, now: int) -> list[Finding]:
         first_seen=due[0][0], last_seen=dts)]
 
 
+def engine_light(conn, s: Settings, now: int) -> list[Finding]:
+    """The engine warning light (MIL) on, from OBD (mil_on, read while the
+    engine runs) or the import (engine_light). This van's import has never
+    sent the light, perhaps only once it lights up; OBD reads it every drive."""
+    rows = sorted(conn.execute(
+        "SELECT ts, value FROM obd_samples WHERE name = 'mil_on' AND value IS NOT NULL "
+        "UNION ALL SELECT ts, value FROM vehicle_samples "
+        "WHERE name = 'engine_light' AND value IS NOT NULL").fetchall())
+    hits = [ts for ts, v in rows if v >= 1]
+    if not hits:
+        return []
+    on = rows[-1][1] >= 1
+    status = _status_for(hits[-1], on, now)
+    if status is None:
+        return []
+    return [Finding(
+        key="engine_light", severity=ATTENTION if status == OPEN else INFO, status=status,
+        title="The van reports its engine warning light",
+        explain=(f"The engine warning light was on, on {_day(hits[-1], s.tz)}."
+                 if on else f"The engine warning light was on until {_day(hits[-1], s.tz)}; it has cleared."),
+        action=("Read the trouble codes: Cerberus reads them while the engine runs (with an OBD "
+                "adapter), or have a scan tool or the dealer read them." if status == OPEN
+                else "Nothing to do now."),
+        first_seen=hits[0], last_seen=hits[-1])]
+
+
 def vehicle_fluids(conn, s: Settings, now: int) -> list[Finding]:
     """Coolant, brake fluid and washer warnings from the chassis."""
     names = {"coolant_low": ("coolant", ATTENTION), "brake_fluid_low": ("brake fluid", ATTENTION),
@@ -783,7 +809,7 @@ def apply_notes(findings: list[Finding], notes: list[dict], s: Settings) -> list
 
 DERIVERS = (solar_path, early_float, soc_honesty, alternator_overshoot, joint_heating,
             pack_imbalance, engine_faults, def_low, starter_battery, tyre_pressure,
-            service_due, vehicle_fluids, edge_findings)
+            service_due, engine_light, vehicle_fluids, edge_findings)
 
 
 def derive(conn: sqlite3.Connection, s: Settings, now: int,

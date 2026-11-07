@@ -193,9 +193,13 @@ def vehicle_view(conn: sqlite3.Connection, now: int) -> dict | None:
 # Findings about the chassis rather than the house system: shown on the
 # Chassis tab as well as Findings.
 CHASSIS_FINDINGS = ("engine_faults", "def_low", "starter_battery", "tyre_pressure",
-                    "service_due", "vehicle_fluids")
+                    "service_due", "engine_light", "vehicle_fluids")
 # starter_battery_state (cerberus.vehicle): Mercedes coding.
 STARTER_LABEL = {0: "good", 4: "good to fair", 1: "fair", 3: "weak", 2: "poor"}
+# An import refreshes its warnings every few minutes. One not refreshed for
+# this long has stopped being sent (on this van the engine light never was),
+# so the Chassis tab leaves it out rather than show a stale "off".
+WARNING_STALE_S = 86400
 
 
 def chassis_view(conn: sqlite3.Connection, ctx: Context, now: int | None = None,
@@ -226,7 +230,7 @@ def chassis_view(conn: sqlite3.Connection, ctx: Context, now: int | None = None,
     warnings = {}
     for name in ("coolant_low", "brake_fluid_low", "washer_low", "engine_light"):
         r = latest(name)
-        if r is not None:
+        if r is not None and now - r["ts"] <= WARNING_STALE_S:
             warnings[name] = {"ts": r["ts"], "on": bool(r["value"])}
     out["warnings"] = warnings or None
     lock = latest("lock_state")
