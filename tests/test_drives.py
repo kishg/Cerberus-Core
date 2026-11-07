@@ -398,6 +398,27 @@ def test_obd_drive_reports_odometer_miles_and_coolant():
     assert "16 mi" in line and "coolant max 88 °C" in line
 
 
+def test_imported_chassis_values_give_miles_fuel_and_the_trip_computer():
+    db = _db()
+    s, e = _drive(db, T0, minutes=20)
+    for k, (odo, fuel, trip) in enumerate([(36960, 64, 0.3), (36964, 63, 4.2), (36968, 63, 8.3)]):
+        db.insert_vehicle_samples(s + k * 600, "mercedes_me", {
+            "odometer_mi": odo, "fuel_level_pct": fuel, "trip_mi": trip,
+            "trip_mpg": 12.6, "trip_time_min": 10 * k})
+    db.insert_vehicle_samples(e + 3 * 3600, "mercedes_me", {"odometer_mi": 36990})  # later drive
+    m = drives.compute_metrics(db, drives.Drive(s, e, "electrical"), RIG)
+    assert (m["veh_driven_mi"], m["veh_fuel_pct_used"]) == (8.0, 1.0)
+    assert (m["veh_trip_mi"], m["veh_trip_mpg"], m["veh_trip_time_min"]) == (8.3, 12.6, 20.0)
+
+
+def test_a_refill_during_the_drive_drops_fuel_used():
+    db = _db()
+    s, e = _drive(db, T0, minutes=20)
+    for k, fuel in enumerate([63, 100, 99]):
+        db.insert_vehicle_samples(s + k * 600, "mercedes_me", {"fuel_level_pct": fuel})
+    assert "veh_fuel_pct_used" not in drives.compute_metrics(db, drives.Drive(s, e, "electrical"), RIG)
+
+
 def test_electrical_drive_has_no_odometer_or_coolant():
     db = _db()
     s, e = _drive(db, T0, minutes=20)

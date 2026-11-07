@@ -88,6 +88,7 @@ storage:
   sample_downsample_seconds: 30
 thresholds:
   def_low_pct: 20                  # AdBlue (DEF) tank % that opens the def_low finding
+  service_due_mi: 500              # miles to the van's service countdown that open service_due
   soc_drift_pct: 15
   soc_drift_sustain_min: 10
   current_share_excess_pct: 25

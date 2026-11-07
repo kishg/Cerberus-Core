@@ -52,11 +52,13 @@ class Context:
     path_limit_mohm: float = findings_mod.Settings.path_limit_mohm
     full_remind_days: float = findings_mod.Settings.full_remind_days
     def_low_pct: float = findings_mod.Settings.def_low_pct
+    service_due_mi: float = findings_mod.Settings.service_due_mi
 
     def findings_settings(self) -> findings_mod.Settings:
         return findings_mod.Settings(tz=self.tz, path_limit_mohm=self.path_limit_mohm,
                                      full_remind_days=self.full_remind_days,
-                                     def_low_pct=self.def_low_pct)
+                                     def_low_pct=self.def_low_pct,
+                                     service_due_mi=self.service_due_mi)
 
 
 def _kv(conn: sqlite3.Connection, key: str) -> str | None:
@@ -191,7 +193,7 @@ def vehicle_view(conn: sqlite3.Connection, now: int) -> dict | None:
 # Findings about the chassis rather than the house system: shown on the
 # Chassis tab as well as Findings.
 CHASSIS_FINDINGS = ("engine_faults", "def_low", "starter_battery", "tyre_pressure",
-                    "vehicle_fluids")
+                    "service_due", "vehicle_fluids")
 # starter_battery_state (cerberus.vehicle): Mercedes coding.
 STARTER_LABEL = {0: "good", 4: "good to fair", 1: "fair", 3: "weak", 2: "poor"}
 

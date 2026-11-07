@@ -14,7 +14,9 @@ The payload is generic, so nothing in this module knows the chassis maker:
 Names Cerberus understands (anything else is stored and otherwise ignored):
 fuel_level_pct, def_level_pct, odometer_mi, range_mi, tire_{fl,fr,rl,rr}_psi,
 tire_warning, starter_battery_state, coolant_low, brake_fluid_low,
-washer_low, ignition_state, lock_state, engine_light. Flags are 0/1.
+washer_low, ignition_state, lock_state, engine_light, service_due_mi (miles to
+the next service), trip_mi, trip_mpg, trip_time_min (the trip computer since
+it last reset, which can span several drives). Flags are 0/1.
 
 starter_battery_state follows the Mercedes coding (the only source so far):
 0 green, 4 green-yellow, 1 yellow, 3 orange, 2 red.
