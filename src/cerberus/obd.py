@@ -418,6 +418,10 @@ STANDARD_CATALOG: tuple[RequestSpec, ...] = (
     _std("019B", "def_level_pct", "%", "D*100/255", "slow", 0, 100),
     _std("0163", "reference_torque_nm", "Nm", "A*256+B", "slow", 0, 65535),
     _std("0101", "dtc_count", "count", "A % 128", "slow", 0, 127),
+    # The engine warning light (MIL), bit 7 of the same byte. Every emissions
+    # ECU answers 0101 (four on this van), each with its own bit, so this one
+    # reads all the replies (decode_mil), not just the first.
+    _std("0101", "mil_on", "flag", "A // 128", "slow", 0, 1),
     _std("0121", "miles_with_mil", "mi", "(A*256+B)*0.621371", "slow"),
     _std("0131", "miles_since_clear", "mi", "(A*256+B)*0.621371", "slow"),
     _std("0130", "warmups_since_clear", "count", "A", "slow"),
@@ -520,8 +524,31 @@ def compile_formula(formula: str):
     return run
 
 
+def decode_mil(raw: str) -> float | None:
+    """1 if any ECU's 0101 reply has the warning-light bit set, 0 if every
+    reply has it clear, None with no reply. Each ECU answers on its own line."""
+    if not raw or any(m in raw.upper() for m in _NON_DATA):
+        return None
+    seen = []
+    for line in re.split(r"[\r\n]+", raw.upper()):
+        flat = _HEX_ONLY.sub("", line)
+        if flat.startswith("0101"):        # echo left on
+            flat = flat[4:]
+        if flat.startswith("4101") and len(flat) >= 6:
+            seen.append(int(flat[4:6], 16) >= 0x80)
+    if not seen:
+        return None
+    return 1.0 if any(seen) else 0.0
+
+
+# Standard reads whose answer spans every ECU's reply, by name.
+ANY_ECU_DECODERS = {"mil_on": decode_mil}
+
+
 def decode_spec(spec: RequestSpec, raw: str, fn=None) -> float | None:
     """Decoded value for one reply, or None (no answer, short, out of range)."""
+    if spec.header is None and spec.name in ANY_ECU_DECODERS:
+        return ANY_ECU_DECODERS[spec.name](raw)
     b = payload_bytes(spec.request, raw)
     if b is None:
         return None

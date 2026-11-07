@@ -528,10 +528,13 @@ def service_due(conn, s: Settings, now: int) -> list[Finding]:
 
 
 def engine_light(conn, s: Settings, now: int) -> list[Finding]:
-    """The van reports its engine warning light on (imported). This van has
-    never sent the light at all, perhaps only sending it once it lights up,
-    so this is here for the day it does."""
-    rows = _vehicle_series(conn, "engine_light")
+    """The engine warning light (MIL) on, from OBD (mil_on, read while the
+    engine runs) or the import (engine_light). This van's import has never
+    sent the light, perhaps only once it lights up; OBD reads it every drive."""
+    rows = sorted(conn.execute(
+        "SELECT ts, value FROM obd_samples WHERE name = 'mil_on' AND value IS NOT NULL "
+        "UNION ALL SELECT ts, value FROM vehicle_samples "
+        "WHERE name = 'engine_light' AND value IS NOT NULL").fetchall())
     hits = [ts for ts, v in rows if v >= 1]
     if not hits:
         return []
@@ -542,7 +545,7 @@ def engine_light(conn, s: Settings, now: int) -> list[Finding]:
     return [Finding(
         key="engine_light", severity=ATTENTION if status == OPEN else INFO, status=status,
         title="The van reports its engine warning light",
-        explain=(f"The van reported its engine warning light on, on {_day(hits[-1], s.tz)}."
+        explain=(f"The engine warning light was on, on {_day(hits[-1], s.tz)}."
                  if on else f"The engine warning light was on until {_day(hits[-1], s.tz)}; it has cleared."),
         action=("Read the trouble codes: Cerberus reads them while the engine runs (with an OBD "
                 "adapter), or have a scan tool or the dealer read them." if status == OPEN

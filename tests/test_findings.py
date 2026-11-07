@@ -220,6 +220,13 @@ def test_engine_light_opens_only_on_a_reported_on_and_clears(db):
     assert _keys(db)["engine_light"].status == "resolved"
 
 
+def test_engine_light_from_obd_opens_and_a_later_import_off_clears_it(db):
+    _obd(db, NOW - 2 * DAY, "mil_on", 1.0)
+    assert _keys(db)["engine_light"].status == "open"
+    db.insert_vehicle_samples(NOW - DAY, "mercedes_me", {"engine_light": 0})
+    assert _keys(db)["engine_light"].status == "resolved"
+
+
 def test_service_due_opens_under_the_level_and_resolves_after_a_service(db):
     db.insert_vehicle_samples(NOW - 3 * DAY, "mercedes_me", {"service_due_mi": 590.0})
     assert "service_due" not in _keys(db)                   # default 500 mi
