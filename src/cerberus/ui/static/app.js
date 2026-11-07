@@ -200,6 +200,10 @@ function renderChassis(d) {
     asOf(v.fuel) + (v.fuel.range_mi != null ? ` · ${fmtNum(v.fuel.range_mi, 0)} mi range` : "")));
   if (v.def) tiles.append(tile("DEF (AdBlue)", `${fmtNum(v.def.pct, 0)}%`, asOf(v.def)));
   if (v.odometer) tiles.append(tile("Odometer", `${fmtNum(v.odometer.mi, 0)} mi`, asOf(v.odometer)));
+  if (d.service_due) {
+    const mi = d.service_due.value;
+    tiles.append(tile("Next service", mi > 0 ? `${fmtNum(mi, 0)} mi` : "Due now", `As of ${ago(d.service_due.ts, d.now)}`));
+  }
   if (d.lock_state) tiles.append(tile("Doors", LOCK_LABEL[d.lock_state.value] || "–", `As of ${ago(d.lock_state.ts, d.now)}`));
 
   const checks = document.getElementById("chassis-checks");
