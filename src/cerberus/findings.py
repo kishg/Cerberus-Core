@@ -196,10 +196,50 @@ def solar_path(conn, s: Settings, now: int) -> list[Finding]:
     )]
 
 
+# Only some days can show early float. A bank that starts absorption nearly
+# full floats near full whatever the cause, and a drive during absorption
+# lifts the bus voltage, so the controller floats on the alternator's account:
+# neither says anything about the solar path. Clearing on such days hid the
+# problem through a fortnight of 96-97% mornings (2026-10-26 to 11-07).
+EARLY_FLOAT_TEST_SOC = 90.0
+EARLY_FLOAT_LOOKBACK_DAYS = 60
+EARLY_FLOAT_TEST_DAYS = 14
+
+
+def _at(day: str, hhmm: str | None, tz) -> int | None:
+    if not hhmm:
+        return None
+    h, m = (int(x) for x in hhmm.split(":"))
+    return day_start(day, tz) + h * 3600 + m * 60
+
+
+def _soc_near(conn, ts: int) -> float | None:
+    r = conn.execute("SELECT AVG(soc) FROM battery_samples WHERE ts BETWEEN ? AND ? "
+                     "AND pack_id > 0", (ts - 120, ts + 120)).fetchone()
+    return r[0] if r else None
+
+
+def _tests_early_float(conn, day: str, m: dict, s: Settings) -> bool:
+    """Whether ``day`` can show early float: solar alone, from a bank with
+    room to fill (absorption began below EARLY_FLOAT_TEST_SOC)."""
+    start = _at(day, m.get("absorption_at"), s.tz)
+    if start is None:
+        return False
+    soc = m.get("soc_at_absorption")
+    if soc is None:                              # days from before it was recorded
+        soc = _soc_near(conn, start)
+    if soc is None or soc >= EARLY_FLOAT_TEST_SOC:
+        return False
+    end = _at(day, m.get("float_at"), s.tz) or day_start(day, s.tz) + DAY
+    return not conn.execute("SELECT 1 FROM drives WHERE start_ts < ? AND end_ts > ?",
+                            (end, start)).fetchone()
+
+
 def early_float(conn, s: Settings, now: int) -> list[Finding]:
-    since = local(now - 14 * DAY, s.tz).date().isoformat()
-    days = [(d, m["soc_at_float"]) for d, m in _solar_days(conn, since)
-            if m.get("soc_at_float") is not None]
+    since = local(now - EARLY_FLOAT_LOOKBACK_DAYS * DAY, s.tz).date().isoformat()
+    floated = [(d, m) for d, m in _solar_days(conn, since) if m.get("soc_at_float") is not None]
+    days = [(d, m["soc_at_float"]) for d, m in floated if _tests_early_float(conn, d, m, s)]
+    days = days[-EARLY_FLOAT_TEST_DAYS:]
     if not days:
         return []
     early = [(d, v) for d, v in days if v < s.full_soc_pct]
@@ -209,13 +249,20 @@ def early_float(conn, s: Settings, now: int) -> list[Finding]:
         return []
     lo = min(v for _, v in early)
     explain = (
-        f"On {len(early)} of the last {len(days)} days with solar charging, the charge "
-        f"controller switched to float (maintenance) charging with the batteries at "
+        f"On {len(early)} of the last {len(days)} days that could show it (solar alone, "
+        f"starting below {EARLY_FLOAT_TEST_SOC:.0f}%), the charge controller switched to "
+        f"float (maintenance) charging with the batteries at "
         f"{lo:.0f}%{'' if len(early) == 1 else f'–{max(v for _, v in early):.0f}%'} "
         f"instead of near full. ")
-    explain += ("It is still happening." if status == OPEN else
-                f"The last time was {_day(_day_ts(early[-1][0], s.tz), s.tz)}; since then it has "
-                f"floated at {days[-1][1]:.0f}%.")
+    last_test = _day(_day_ts(days[-1][0], s.tz), s.tz)
+    if status == OPEN and floated[-1][0] == days[-1][0]:
+        explain += "It is still happening."
+    elif status == OPEN:
+        explain += (f"The latest such day was {last_test}. Days since then started nearly full "
+                    f"or had a drive, so they can't show whether it is fixed.")
+    else:
+        explain += (f"The last time was {_day(_day_ts(early[-1][0], s.tz), s.tz)}; on {last_test} "
+                    f"it floated at {days[-1][1]:.0f}%.")
     return [Finding(
         key="early_float", severity=ATTENTION if status == OPEN else INFO, status=status,
         title="Solar stopped charging before the batteries were full",
@@ -224,7 +271,7 @@ def early_float(conn, s: Settings, now: int) -> list[Finding]:
                 "checks out, compare the charge controller's absorption settings with the "
                 "battery maker's recommendation."),
         first_seen=_day_ts(early[0][0], s.tz), last_seen=_day_ts(early[-1][0], s.tz),
-        evidence={"kind": "series", "label": "Battery % when float began", "unit": "%",
+        evidence={"kind": "series", "label": "Battery % when float began (test days)", "unit": "%",
                   "limit": s.full_soc_pct, "limit_label": "Full",
                   "points": [[_day_ts(d, s.tz), v] for d, v in days]},
     )]

@@ -77,10 +77,34 @@ def test_solar_path_falls_back_to_the_measured_path(db):
 def test_early_float_resolved_once_it_floats_full_again(db):
     for day, soc in (("2026-10-23", 79.0), ("2026-10-24", 62.0), ("2026-10-25", 91.7),
                      ("2026-10-26", 99.0), ("2026-10-30", 99.0)):
-        _solar_day(db, day, soc_at_float=soc)
+        _solar_day(db, day, soc_at_float=soc, absorption_at="10:00", soc_at_absorption=60.0)
     f = _keys(db)["early_float"]
     assert (f.status, f.severity) == ("resolved", "info")
     assert "3 of the last 5 days" in f.explain and "62%–92%" in f.explain
+
+
+def test_early_float_ignores_days_that_cannot_show_it(db):
+    _solar_day(db, "2026-10-20", soc_at_float=88.0, absorption_at="10:00", soc_at_absorption=85.0)
+    # Started nearly full, or a drive ran through absorption: no evidence either way.
+    _solar_day(db, "2026-10-26", soc_at_float=99.0, absorption_at="10:00", soc_at_absorption=97.0)
+    _solar_day(db, "2026-10-27", soc_at_float=99.0, absorption_at="10:00", soc_at_absorption=80.0,
+               float_at="12:00")
+    _drive(db, int(datetime(2026, 10, 27, 11, 0, tzinfo=NY).timestamp()), [])
+    _solar_day(db, "2026-10-28", soc_at_float=99.0)           # no absorption time: unknown start
+    f = _keys(db)["early_float"]
+    assert f.status == "open" and "1 of the last 1 days" in f.explain
+    assert "can't show whether it is fixed" in f.explain
+    # A real test day that floats full resolves it.
+    _solar_day(db, "2026-10-29", soc_at_float=99.0, absorption_at="10:00", soc_at_absorption=86.0)
+    assert _keys(db)["early_float"].status == "resolved"
+
+
+def test_early_float_reads_the_start_from_battery_samples_for_older_days(db):
+    _solar_day(db, "2026-10-20", soc_at_float=88.0, absorption_at="10:00")
+    t = int(datetime(2026, 10, 20, 10, 0, tzinfo=NY).timestamp())
+    for p in (1, 2, 3):
+        db.conn.execute("INSERT INTO battery_samples (ts, pack_id, soc) VALUES (?, ?, 85)", (t, p))
+    assert _keys(db)["early_float"].status == "open"
 
 
 # --- SoC honesty ---------------------------------------------------------------------
