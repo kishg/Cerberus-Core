@@ -814,7 +814,7 @@ function barChart(box, rows, o) {
 
 const SOURCE_STATUS = {
   fresh: ["good", "Live"], stale: ["warning", "Stale"],
-  away: ["muted", "Out of range"], idle: ["muted", "Idle"],
+  away: ["muted", "Out of range"], idle: ["muted", "Idle"], off: ["muted", "Off"],
 };
 const GAP_ICON = { cerbo: "warning", network: "warning", partial: "info", restart: "info", asleep: "info", stopped: "info" };
 

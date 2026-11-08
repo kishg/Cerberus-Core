@@ -152,6 +152,18 @@ def test_sources_fresh_stale_and_out_of_range(db):
     assert s == {"battery": "fresh", "weather": "stale", "packs_ble": "away"}   # never-seen hidden
 
 
+@pytest.mark.parametrize("state, age, status", [
+    (0, 270, "off"),          # off: rows only every few minutes, not stale
+    (0, 2000, "stale"),       # but silence past that still is
+    (9, 270, "stale"),        # inverting: the usual limit
+])
+def test_inverter_off_reads_as_off_not_stale(db, state, age, status):
+    db.conn.execute("INSERT INTO ac_samples (ts, inverter_state) VALUES (?, ?)", (NOW - age, state))
+    (r,) = [r for r in health.sources(db.conn, NOW) if r["key"] == "ac"]
+    assert r["status"] == status
+    assert (r["note"] == "The inverter is off.") == (state == 0)
+
+
 def test_coverage_is_per_van_local_day(db):
     midnight = int(datetime(2026, 10, 31, 0, 0, tzinfo=NY).timestamp())
     _battery(db, midnight, midnight + 6 * H)            # 6 of the first 15 h today
