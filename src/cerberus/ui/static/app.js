@@ -122,6 +122,10 @@ function tile(label, value, detail) {
   return t;
 }
 
+// Why the DC loads figure is blank (api.dc_loads).
+const DC_LOADS_WHY = { engine: "Engine running: alternator charging isn't measured",
+  inverter: "Waiting for the inverter's current", unmeasured: "Something charging the batteries isn't measured" };
+
 function renderNow(d) {
   state.tz = d.tz || undefined;
   state.unit = d.temp_unit || state.unit;
@@ -151,6 +155,9 @@ function renderNow(d) {
   if (solar) tiles.append(tile("Solar", `${fmtNum(solar.pv_w, 0)} W`, `${solar.state || "–"} · today ${fmtNum(solar.yield_today_kwh * 1000, 0)} Wh`));
   if (ac) tiles.append(tile("AC load", `${fmtNum(ac.consumption_w, 0)} W`,
     `${ac.shore_connected ? "Shore power" : "Inverter"}${ac.inverter_state ? " · " + ac.inverter_state : ""}`));
+  const dl = d.dc_loads;
+  if (dl) tiles.append(tile("DC loads", dl.a === null ? "–" : `${fmtNum(dl.w, 0)} W`,
+    dl.a === null ? DC_LOADS_WHY[dl.reason] : `${fmtNum(dl.a, 1)} A · worked out`));
   if (d.cabin) tiles.append(tile("Cabin", fmtTempF(d.cabin.air_temp_f), `${fmtNum(d.cabin.humidity_pct, 0)}% humidity · ${ago(d.cabin.ts, d.now)}`));
   if (d.outside) tiles.append(tile("Outside", fmtTempF(d.outside.air_temp_f), `${fmtNum(d.outside.humidity_pct, 0)}% humidity · forecast`));
 

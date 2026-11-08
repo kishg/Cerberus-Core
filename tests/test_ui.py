@@ -51,6 +51,14 @@ def test_snapshot_bank_is_mean_soc_and_summed_current():
     assert len(b["packs"]) == 3 and s["solar"] is None and s["ac"] is None
 
 
+def test_snapshot_carries_the_inverter_dc_current():
+    ac = AcState()
+    ac.dc_current, ac.last_update_ts = -9.0, NOW
+    ac.inverter_state = 9
+    s = live.snapshot(NOW, True, None, SolarState(), ac)
+    assert s["ac"] is not None and s["ac"]["dc_current"] == -9.0
+
+
 def test_snapshot_uses_reported_capacity_only_when_every_pack_reports():
     full = live.snapshot(NOW, True, _bank(_pack(1, cap=310), _pack(2, cap=310)),
                          SolarState(), AcState(), capacity_fallback_ah=999)
@@ -88,6 +96,48 @@ def test_stale_snapshot_is_collector_down(db):
     _write_snapshot(db, NOW - api.SNAPSHOT_STALE_S - 1)
     v = api.now_view(db.conn, api.Context(), NOW)
     assert v["collector_up"] is False and v["cerbo_online"] is False
+
+
+def _dc_snap(bank_a=-3.0, solar_a=None, ac=None):
+    return {"bank": {"ts": NOW, "current": bank_a, "voltage": 13.3},
+            "solar": None if solar_a is None else {"charge_a": solar_a}, "ac": ac}
+
+
+@pytest.mark.parametrize("snap, engine, out", [
+    # Parked, inverter off: the bank's draw is all DC load.
+    (_dc_snap(-3.0, ac={"inverter_state": "off", "dc_current": None}), False,
+     {"a": 3.0, "w": 40, "ts": NOW}),
+    # Solar covers some of it.
+    (_dc_snap(5.0, solar_a=8.0), False, {"a": 3.0, "w": 40, "ts": NOW}),
+    # The inverter's draw is AC load, not DC.
+    (_dc_snap(-12.0, ac={"inverter_state": "inverting", "dc_current": -10.0}), False,
+     {"a": 2.0, "w": 27, "ts": NOW}),
+    # Pack rounding just under zero reads as zero.
+    (_dc_snap(0.25), False, {"a": 0.0, "w": 0, "ts": NOW}),
+    # An unseen charger, or the alternator, would read as load.
+    (_dc_snap(20.0), False, {"a": None, "reason": "unmeasured"}),
+    (_dc_snap(40.0), True, {"a": None, "reason": "engine"}),
+    (_dc_snap(-12.0, ac={"inverter_state": "inverting", "dc_current": None}), False,
+     {"a": None, "reason": "inverter"}),
+    ({"bank": None}, False, None),
+])
+def test_dc_loads(snap, engine, out):
+    assert api.dc_loads(snap, engine) == out
+
+
+def test_engine_charging_follows_the_acr_and_obd(db):
+    assert not api.engine_charging(db.conn, NOW)
+    db.conn.execute("INSERT INTO acr_samples (ts, field1, raw) VALUES (?, 3, '')", (NOW - 5,))
+    assert not api.engine_charging(db.conn, NOW)                 # idle
+    db.conn.execute("INSERT INTO acr_samples (ts, field1, raw) VALUES (?, 2, '')", (NOW - 2,))
+    assert api.engine_charging(db.conn, NOW)                     # connected
+    assert not api.engine_charging(db.conn, NOW + api.LIVE_STALE_S + 5)
+
+
+def test_now_view_gives_dc_loads_while_live(db):
+    _write_snapshot(db, NOW - 3)
+    assert api.now_view(db.conn, api.Context(), NOW)["dc_loads"]["a"] == 10.0
+    assert api.now_view(db.conn, api.Context(), NOW + api.LIVE_STALE_S + 60)["dc_loads"] is None
 
 
 @pytest.mark.parametrize("days, trusted", [(None, False), (2, True), (api.SOC_TRUST_DAYS + 1, False)])

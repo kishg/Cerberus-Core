@@ -78,6 +78,8 @@ def snapshot(
             "input_w": _r(ac.total_input_w, 0),
             "shore_connected": ac.shore_connected,
             "inverter_state": ac.inverter_state_label,
+            # Victron's sign: negative while inverting; null with it off.
+            "dc_current": _r(ac.dc_current),
             "charging_from_ac": ac.is_charging_from_ac,
         }
     return out
