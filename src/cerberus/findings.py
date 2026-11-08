@@ -55,6 +55,12 @@ class Settings:
     full_remind_days: float = 30.0
     def_low_pct: float = 20.0           # thresholds.def_low_pct
     service_due_mi: float = 500.0       # thresholds.service_due_mi
+    temp_unit: str = "F"                # system.temperature_unit
+
+
+def fmt_temp(c: float, s: Settings) -> str:
+    """A Celsius reading in the owner's unit."""
+    return f"{c * 9 / 5 + 32:.0f} °F" if s.temp_unit == "F" else f"{c:.0f} °C"
 
 
 @dataclass
@@ -321,7 +327,7 @@ def joint_heating(conn, s: Settings, now: int) -> list[Finding]:
     return [Finding(
         key="joint_heating", severity=URGENT if status == OPEN else INFO, status=status,
         title="A connection on the alternator charge path is running hot",
-        explain=(f"The temperature probe on that connection reached {f['value']:.0f} °C on the "
+        explain=(f"The temperature probe on that connection reached {fmt_temp(f['value'], s)} on the "
                  f"{_day(ts, s.tz)} drive, hotter than anything on record. Heat at a joint means "
                  f"resistance, and it gets worse as the joint loosens."),
         action=("With the engine off and the house batteries disconnected, check and tighten "
@@ -648,10 +654,10 @@ EDGES = (
           "Usually evens out after a full charge. If one pack keeps lagging, check that its "
           "cables and connections match the others."),
     _Edge("battery_hot", ("temp_high",), URGENT, "A battery is too hot",
-          lambda d, e, s: f"Pack {d.get('pack')} reached {d.get('temperature', 0):.0f} °C.",
+          lambda d, e, s: f"Pack {d.get('pack')} reached {fmt_temp(d.get('temperature', 0), s)}.",
           "Reduce charging and heavy loads, and improve airflow around the batteries."),
     _Edge("battery_cold", ("temp_low",), ATTENTION, "A battery is too cold to charge",
-          lambda d, e, s: (f"Pack {d.get('pack')} is at {d.get('temperature', 0):.0f} °C. Lithium "
+          lambda d, e, s: (f"Pack {d.get('pack')} is at {fmt_temp(d.get('temperature', 0), s)}. Lithium "
                            f"batteries must not charge near freezing; most block charging "
                            f"themselves."),
           "Warm the battery compartment before relying on charging."),

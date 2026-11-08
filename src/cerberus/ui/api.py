@@ -53,12 +53,14 @@ class Context:
     full_remind_days: float = findings_mod.Settings.full_remind_days
     def_low_pct: float = findings_mod.Settings.def_low_pct
     service_due_mi: float = findings_mod.Settings.service_due_mi
+    temp_unit: str = findings_mod.Settings.temp_unit
 
     def findings_settings(self) -> findings_mod.Settings:
         return findings_mod.Settings(tz=self.tz, path_limit_mohm=self.path_limit_mohm,
                                      full_remind_days=self.full_remind_days,
                                      def_low_pct=self.def_low_pct,
-                                     service_due_mi=self.service_due_mi)
+                                     service_due_mi=self.service_due_mi,
+                                     temp_unit=self.temp_unit)
 
 
 def _kv(conn: sqlite3.Connection, key: str) -> str | None:
@@ -101,6 +103,7 @@ def now_view(conn: sqlite3.Connection, ctx: Context, now: int | None = None,
     out = {
         "now": now,
         "tz": ctx.tz_name,
+        "temp_unit": ctx.temp_unit,
         "collector_up": collector_up,
         "cerbo_online": bool(snap and snap.get("cerbo_online")) and collector_up,
         "live": live,
@@ -208,7 +211,7 @@ def chassis_view(conn: sqlite3.Connection, ctx: Context, now: int | None = None,
     (vehicle_view), plus what an import adds (tyres, starter battery, fluid
     warnings, lock, service countdown), the chassis findings and the last few drives."""
     now = int(time.time()) if now is None else now
-    out: dict = {"now": now, "tz": ctx.tz_name, "vehicle": vehicle_view(conn, now)}
+    out: dict = {"now": now, "tz": ctx.tz_name, "temp_unit": ctx.temp_unit, "vehicle": vehicle_view(conn, now)}
 
     def latest(name):
         r = _latest_vehicle(conn, name)
@@ -263,7 +266,7 @@ def findings_view(conn: sqlite3.Connection, ctx: Context, now: int | None = None
     notes = notes or []
     found = findings_mod.derive(conn, ctx.findings_settings(), now, notes)
     shown = {f.key for f in found}
-    return {"now": now, "tz": ctx.tz_name,
+    return {"now": now, "tz": ctx.tz_name, "temp_unit": ctx.temp_unit,
             "findings": [f.as_dict() for f in found],
             "other_notes": sorted((n for n in notes if n["key"] not in shown),
                                   key=lambda n: -n["ts"])}
@@ -292,7 +295,8 @@ def history_view(conn: sqlite3.Connection, ctx: Context, rng: str,
     # Interpolated, not bound: both are ints from this module (RANGES and the
     # zone offset), never from the request.
     t = f"((ts + {int(off)}) / {int(bucket)}) * {int(bucket)} - {int(off)}"
-    out: dict = {"range": rng, "bucket_s": bucket, "since": since, "now": now, "tz": ctx.tz_name}
+    out: dict = {"range": rng, "bucket_s": bucket, "since": since, "now": now, "tz": ctx.tz_name,
+                 "temp_unit": ctx.temp_unit}
 
     out["bank"] = [list(r) for r in conn.execute(
         f"""

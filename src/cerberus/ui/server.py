@@ -100,7 +100,8 @@ class App:
                  tz_name: str | None, path_limit_mohm: float = 75.0,
                  full_remind_days: float = 30.0, source_url: str = "",
                  config_path: str | None = None, charge_on_a: float = 20.0,
-                 def_low_pct: float = 20.0, service_due_mi: float = 500.0):
+                 def_low_pct: float = 20.0, service_due_mi: float = 500.0,
+                 temp_unit: str = "F"):
         self.db_path = db_path
         self.pack_count = pack_count
         self.capacity_ah = capacity_ah
@@ -112,6 +113,7 @@ class App:
         self.charge_on_a = charge_on_a
         self.def_low_pct = def_low_pct
         self.service_due_mi = service_due_mi
+        self.temp_unit = temp_unit
         self.sessions = auth.Sessions(config_path) if config_path else None
         self.static = load_static()
 
@@ -122,7 +124,8 @@ class App:
                    tz_name=ui.timezone, path_limit_mohm=ui.path_limit_mohm,
                    full_remind_days=ui.full_remind_days, source_url=ui.source_url,
                    config_path=config_path, charge_on_a=ui.charge_on_a,
-                   def_low_pct=ui.def_low_pct, service_due_mi=ui.service_due_mi)
+                   def_low_pct=ui.def_low_pct, service_due_mi=ui.service_due_mi,
+                   temp_unit=ui.temperature_unit)
 
     def reload(self) -> None:
         """Pick up a settings change without restarting (sessions survive)."""
@@ -133,6 +136,7 @@ class App:
         self.charge_on_a = ui.charge_on_a
         self.def_low_pct = ui.def_low_pct
         self.service_due_mi = ui.service_due_mi
+        self.temp_unit = ui.temperature_unit
 
     def learned(self, conn: sqlite3.Connection, now: int) -> dict:
         """cerberus.learn's proposals, cached: they read 90 days of history
@@ -154,7 +158,8 @@ class App:
                            path_limit_mohm=self.path_limit_mohm,
                            full_remind_days=self.full_remind_days,
                            def_low_pct=self.def_low_pct,
-                           service_due_mi=self.service_due_mi)
+                           service_due_mi=self.service_due_mi,
+                           temp_unit=self.temp_unit)
 
 
 def make_handler(app: App):

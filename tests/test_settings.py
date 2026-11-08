@@ -50,6 +50,13 @@ def test_def_low_pct_is_editable_and_keeps_the_other_thresholds(cfg):
     assert cfg_mod.load_ui(cfg).def_low_pct == 50.0
 
 
+def test_temperature_unit_defaults_to_f_and_is_editable(cfg):
+    assert _by_key(settings.current(cfg))["system.temperature_unit"]["value"] == "F"
+    rows = _by_key(settings.apply(cfg, {"system.temperature_unit": "C"}))
+    assert rows["system.temperature_unit"]["value"] == "C"
+    assert cfg_mod.load_ui(cfg).temperature_unit == "C"
+
+
 def test_apply_writes_setup_yaml_and_never_touches_config(cfg):
     before = cfg.read_bytes()
     rows = _by_key(settings.apply(cfg, {"solar.array_w": "400", "system.timezone": "America/Denver"}))
@@ -68,6 +75,7 @@ def test_apply_writes_setup_yaml_and_never_touches_config(cfg):
     ({"solar.array_w": "-5"}, "solar"),
     ({"system.timezone": "Mars/Base"}, "timezone"),
     ({"thresholds.def_low_pct": "150"}, "def_low_pct"),
+    ({"system.temperature_unit": "K"}, "must be one of"),
     ({"mqtt.host": "evil"}, "not an editable setting"),
 ])
 def test_invalid_changes_write_nothing(cfg, changes, match):

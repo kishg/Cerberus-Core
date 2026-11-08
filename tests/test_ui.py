@@ -122,6 +122,14 @@ def test_now_lists_open_findings_only(db):
     assert {f["key"]: f["status"] for f in full} == {"solar_output_open": "open", "battery_hot": "resolved"}
 
 
+def test_views_carry_the_temperature_unit(db):
+    assert api.now_view(db.conn, api.Context(), NOW)["temp_unit"] == "F"
+    ctx = api.Context(temp_unit="C")
+    assert api.now_view(db.conn, ctx, NOW)["temp_unit"] == "C"
+    assert api.findings_view(db.conn, ctx, NOW)["temp_unit"] == "C"
+    assert ctx.findings_settings().temp_unit == "C"
+
+
 # --- history ---------------------------------------------------------------------
 
 def _samples(db, ts, packs=(1, 2, 3), soc=90.0, amps=-3.0):

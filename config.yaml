@@ -49,6 +49,9 @@ system:
   # General > Time zone on the Cerbo; America/Indianapolis here, the same
   # clock as the van's region), else this host's. Set it only to override the GX.
   # timezone: America/New_York
+  # Temperature units on the screens and in findings: F (default) or C. Applies
+  # to air, batteries and equipment alike; thresholds below stay in °C.
+  # temperature_unit: F
 
 bank:
   # Where bank figures come from. "packs": one BMS service per pack on the GX,
