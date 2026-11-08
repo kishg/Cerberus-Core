@@ -250,3 +250,10 @@ def test_def_low_uses_the_configured_level_and_the_imported_reading(db):
     assert f.status == "open" and "read 45% on Oct 30, under the 50% alert level" in f.explain
     _obd(db, NOW - 2 * DAY, "def_level_pct", 90.0)          # older than the import
     assert {f.key: f for f in F.derive(db.conn, high, NOW)}["def_low"].status == "open"
+
+
+@pytest.mark.parametrize("unit, text", [("F", "41 °F"), ("C", "5 °C")])
+def test_battery_temperatures_read_in_the_owners_unit(db, unit, text):
+    _event(db, NOW - 3600, "temp_low", pack=2, temperature=5.0)
+    f = _keys(db) if unit == "F" else {x.key: x for x in F.derive(db.conn, F.Settings(tz=NY, temp_unit="C"), NOW)}
+    assert f"Pack 2 is at {text}." in f["battery_cold"].explain

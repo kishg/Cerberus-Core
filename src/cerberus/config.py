@@ -275,6 +275,23 @@ class Config:
     solar: SolarArrayConfig = SolarArrayConfig()
     # IANA zone overriding the GX's own setting; see location.VanLocation.
     timezone: str | None = None
+    # How the screens and findings show temperatures (system.temperature_unit).
+    temperature_unit: str = "F"
+
+
+TEMPERATURE_UNITS = ("F", "C")
+
+
+def _parse_temperature_unit(raw: dict) -> str:
+    """system.temperature_unit: F (default) or C, for every temperature the
+    owner sees. Storage and thresholds stay in their own units."""
+    unit = (raw.get("system") or {}).get("temperature_unit")
+    if unit is None or str(unit).strip() == "":
+        return "F"
+    unit = str(unit).strip().lstrip("°").upper()
+    if unit not in TEMPERATURE_UNITS:
+        raise ConfigError(f"system.temperature_unit: must be F or C, got {unit!r}")
+    return unit
 
 
 def _parse_timezone(raw: dict) -> str | None:
@@ -528,6 +545,7 @@ class UiConfig:
     full_remind_days: float = 30.0
     def_low_pct: float = 20.0
     service_due_mi: float = 500.0
+    temperature_unit: str = "F"
     # Net charge current that means another charger is on (bank.charge_on_a):
     # the UI's "is the van moving" test for phone positions (cerberus.phonefix).
     charge_on_a: float = 20.0
@@ -609,6 +627,7 @@ def load_ui(path: str | Path) -> UiConfig:
         full_remind_days=float((raw.get("full_charge") or {}).get("remind_after_days", 30)),
         def_low_pct=_parse_def_low_pct(raw),
         service_due_mi=_parse_service_due_mi(raw),
+        temperature_unit=_parse_temperature_unit(raw),
         source_url=str(u.get("source_url", UiConfig.source_url)),
         charge_on_a=bank.charge_on_a,
     )
@@ -883,4 +902,5 @@ user_agent=str(w_raw.get("user_agent", DEFAULT_WEATHER_UA)).strip(),
         system=system,
         solar=solar,
         timezone=_parse_timezone(raw),
+        temperature_unit=_parse_temperature_unit(raw),
     )

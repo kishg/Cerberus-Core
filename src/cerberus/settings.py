@@ -102,6 +102,10 @@ SETTINGS = (
             "Flag an upcoming service this many miles before the van's own service "
             "countdown reaches zero (from the chassis maker's app, when imported).",
             "number", " mi", getter=lambda c: c.thresholds["service_due_mi"]),
+    Setting("system.temperature_unit", "Display", "Temperature units",
+            "Fahrenheit or Celsius, for every temperature on these screens and in "
+            "findings: air, batteries and equipment alike.",
+            "choice", choices=cfg_mod.TEMPERATURE_UNITS, getter=lambda c: c.temperature_unit),
     Setting("system.timezone", "Location", "Time zone",
             "An IANA zone such as America/Denver. Leave empty to follow the Cerbo's own "
             "setting.", "text", optional=True, getter=lambda c: c.timezone),

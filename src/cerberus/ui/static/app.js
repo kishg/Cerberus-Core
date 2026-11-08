@@ -5,7 +5,7 @@
 const SVGNS = "http://www.w3.org/2000/svg";
 const NOW_POLL_MS = 5000;
 const HISTORY_POLL_MS = 60000;
-const state = { view: null, range: "24h", tz: undefined, nowTimer: null, histTimer: null, lastHistory: null, noteDrafts: {} };
+const state = { view: null, range: "24h", tz: undefined, unit: "F", nowTimer: null, histTimer: null, lastHistory: null, noteDrafts: {} };
 
 // ---------------------------------------------------------------- helpers
 
@@ -28,6 +28,19 @@ function svg(tag, attrs = {}) {
 }
 function fmtNum(v, d = 0) {
   return v === null || v === undefined ? "–" : Number(v).toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d });
+}
+// Equipment temperatures arrive in °C and air in °F; both show in the owner's
+// unit (Settings > Display), which every view's JSON carries as temp_unit.
+function fmtTempC(c) {
+  if (c === null || c === undefined) return "–";
+  return state.unit === "C" ? `${fmtNum(c, 0)}°C` : `${fmtNum(c * 9 / 5 + 32, 0)}°F`;
+}
+function fmtTempF(f) {
+  if (f === null || f === undefined) return "–";
+  return state.unit === "F" ? `${fmtNum(f, 0)}°F` : `${fmtNum((f - 32) * 5 / 9, 0)}°C`;
+}
+function airPts(pts) {
+  return state.unit === "F" ? pts : (pts || []).map(([t, f]) => [t, f === null ? null : (f - 32) * 5 / 9]);
 }
 function fmtTime(ts, opts) {
   const o = Object.assign({ timeZone: state.tz }, opts);
@@ -111,6 +124,7 @@ function tile(label, value, detail) {
 
 function renderNow(d) {
   state.tz = d.tz || undefined;
+  state.unit = d.temp_unit || state.unit;
   const snap = d.snapshot || {};
   const bank = snap.bank, solar = snap.solar, ac = snap.ac;
   const status = document.getElementById("status");
@@ -137,8 +151,8 @@ function renderNow(d) {
   if (solar) tiles.append(tile("Solar", `${fmtNum(solar.pv_w, 0)} W`, `${solar.state || "–"} · today ${fmtNum(solar.yield_today_kwh * 1000, 0)} Wh`));
   if (ac) tiles.append(tile("AC load", `${fmtNum(ac.consumption_w, 0)} W`,
     `${ac.shore_connected ? "Shore power" : "Inverter"}${ac.inverter_state ? " · " + ac.inverter_state : ""}`));
-  if (d.cabin) tiles.append(tile("Cabin", `${fmtNum(d.cabin.air_temp_f, 0)}°F`, `${fmtNum(d.cabin.humidity_pct, 0)}% humidity · ${ago(d.cabin.ts, d.now)}`));
-  if (d.outside) tiles.append(tile("Outside", `${fmtNum(d.outside.air_temp_f, 0)}°F`, `${fmtNum(d.outside.humidity_pct, 0)}% humidity · forecast`));
+  if (d.cabin) tiles.append(tile("Cabin", fmtTempF(d.cabin.air_temp_f), `${fmtNum(d.cabin.humidity_pct, 0)}% humidity · ${ago(d.cabin.ts, d.now)}`));
+  if (d.outside) tiles.append(tile("Outside", fmtTempF(d.outside.air_temp_f), `${fmtNum(d.outside.humidity_pct, 0)}% humidity · forecast`));
 
   const tbody = document.querySelector("#packs tbody");
   tbody.replaceChildren();
@@ -146,7 +160,7 @@ function renderNow(d) {
     const tr = el("tr");
     tr.append(el("td", {}, bank.source === "monitor" ? "Bank" : `Pack ${p.id}`),
       el("td", {}, `${fmtNum(p.soc, 0)}%`), el("td", {}, `${fmtNum(p.voltage, 2)} V`),
-      el("td", {}, `${fmtNum(p.current, 1)} A`), el("td", {}, `${fmtNum(p.temperature_c, 0)}°C`));
+      el("td", {}, `${fmtNum(p.current, 1)} A`), el("td", {}, fmtTempC(p.temperature_c)));
     tbody.append(tr);
   }
 
@@ -181,6 +195,7 @@ const LOCK_LABEL = { 0: "Unlocked", 1: "Locked inside", 2: "Locked", 3: "Partly 
 
 function renderChassis(d) {
   state.tz = d.tz || undefined;
+  state.unit = d.temp_unit || state.unit;
   const v = d.vehicle || {}, tiles = document.getElementById("chassis-tiles");
   tiles.replaceChildren();
   const eng = v.engine;
@@ -243,7 +258,7 @@ function renderChassis(d) {
       el("td", {}, r.miles == null ? "–" : fmtNum(r.miles, 0)),
       el("td", {}, r.alt_ah == null ? "–" : `${fmtNum(r.alt_ah, 0)} Ah`),
       el("td", {}, r.peak_bank_v == null ? "–" : `${fmtNum(r.peak_bank_v, 2)} V`),
-      el("td", {}, r.coolant_max_c == null ? "–" : `${fmtNum(r.coolant_max_c, 0)}°C`));
+      el("td", {}, fmtTempC(r.coolant_max_c)));
     db.append(tr);
   }
   document.getElementById("chassis-empty").hidden = !!(tiles.children.length || d.drives.length || ty);
@@ -414,6 +429,7 @@ function notesBlock(f) {
 
 function renderFindings(d) {
   state.tz = d.tz || state.tz;
+  state.unit = d.temp_unit || state.unit;
   const holder = document.getElementById("findings");
   holder.replaceChildren();
   const open = d.findings.filter((f) => f.status === "open" && !f.known);
@@ -1355,6 +1371,7 @@ function renderConnection(conn, signedIn) {
 
 function renderHistory(h) {
   state.tz = h.tz || state.tz;
+  state.unit = h.temp_unit || state.unit;
   const holder = document.getElementById("charts");
   holder.replaceChildren();
   // "All" starts at the oldest sample of any series; other ranges at their cutoff.
@@ -1378,14 +1395,14 @@ function renderHistory(h) {
     fillTable(tableWrap, ["Time", c.title], c.pts.map(([t, v]) => [when(t), `${fmtNum(v, c.d)}${c.unit}`]));
   }
 
-  const temps = [{ name: "Cabin", color: "--series-1", pts: h.cabin_f }, { name: "Outside", color: "--series-2", pts: h.outside_f }];
-  const tc = chartCard("Temperature", "°F, cabin sensor and outside forecast", temps);
+  const temps = [{ name: "Cabin", color: "--series-1", pts: airPts(h.cabin_f) }, { name: "Outside", color: "--series-2", pts: airPts(h.outside_f) }];
+  const tc = chartCard("Temperature", `°${state.unit}, cabin sensor and outside forecast`, temps);
   holder.append(tc.card);
-  lineChart(tc.box, temps, { ...common, unit: "°F", decimals: 0, label: "Temperature" });
+  lineChart(tc.box, temps, { ...common, unit: `°${state.unit}`, decimals: 0, label: "Temperature" });
   const outside = new Map(h.outside_f.map((p) => [p[0], p[1]]));
   const ts = [...new Set([...h.cabin_f.map((p) => p[0]), ...h.outside_f.map((p) => p[0])])].sort((a, b) => a - b);
   const cabin = new Map(h.cabin_f.map((p) => [p[0], p[1]]));
-  fillTable(tc.tableWrap, ["Time", "Cabin", "Outside"], ts.map((t) => [when(t), `${fmtNum(cabin.get(t), 0)}°F`, `${fmtNum(outside.get(t), 0)}°F`]));
+  fillTable(tc.tableWrap, ["Time", "Cabin", "Outside"], ts.map((t) => [when(t), fmtTempF(cabin.get(t)), fmtTempF(outside.get(t))]));
 
   if (h.range !== "24h") {
     const yc = chartCard("Daily solar yield", "kWh per day");

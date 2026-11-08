@@ -156,3 +156,14 @@ def test_bank_charge_on_a_must_be_a_positive_number(tmp_path, monkeypatch, value
     monkeypatch.setenv("CERBERUS_MQTT_PASSWORD", "pw")
     with pytest.raises(cfg_mod.ConfigError, match="bank.charge_on_a"):
         cfg_mod.load(_write(tmp_path, MINIMAL + f"    bank:\n      charge_on_a: {value}\n"))
+
+
+def test_temperature_unit_defaults_to_f_and_reaches_the_ui(tmp_path, monkeypatch):
+    monkeypatch.setenv("CERBERUS_MQTT_PASSWORD", "pw")
+    p = _write(tmp_path, MINIMAL)
+    assert cfg_mod.load(p).temperature_unit == cfg_mod.load_ui(p).temperature_unit == "F"
+    p = _write(tmp_path, MINIMAL + "    system:\n      temperature_unit: °c\n")
+    assert cfg_mod.load(p).temperature_unit == cfg_mod.load_ui(p).temperature_unit == "C"
+    p = _write(tmp_path, MINIMAL + "    system:\n      temperature_unit: K\n")
+    with pytest.raises(cfg_mod.ConfigError, match="temperature_unit"):
+        cfg_mod.load_ui(p)
