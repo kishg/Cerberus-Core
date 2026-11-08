@@ -10,6 +10,11 @@ A note can mark its finding *known*: the owner knows and accepts it for now,
 so it stops counting as needing attention, until it happens again after the
 note (cerberus.findings.known_holds).
 
+A note can also be a *resolution*: what caused the finding and what fixed it.
+It belongs to one numbered occurrence (``num``, cerberus.findings_log) and
+closes it once the data has cleared; until the owner writes one, a cleared
+finding waits in "add what fixed it". Those notes are what Co-Pilot learns from.
+
 Written by the UI, so it lives in a small file beside config.yaml, not in the
 database (the UI never writes the database). Like the other beside-config
 files it is per-box state: git-ignored, and carried over by cerberus.migrate.
@@ -27,6 +32,7 @@ from pathlib import Path
 
 NOTES_FILE = ".cerberus-notes.json"
 MAX_TEXT = 1000
+KINDS = ("note", "resolution")
 MAX_NOTES = 500
 KEY_MAX = 80
 
@@ -52,9 +58,12 @@ def read(config_path: str | Path) -> list[dict]:
     out = []
     for n in raw.get("notes", []) if isinstance(raw, dict) else []:
         try:
+            num = n.get("num")
             out.append({"id": str(n["id"]), "key": str(n["key"]), "ts": int(n["ts"]),
                         "text": str(n["text"]), "title": str(n.get("title") or ""),
-                        "known": n.get("known") is True})
+                        "known": n.get("known") is True,
+                        "num": int(num) if num is not None else None,
+                        "kind": n.get("kind") if n.get("kind") in KINDS else "note"})
         except (KeyError, TypeError, ValueError):
             continue
     return sorted(out, key=lambda n: n["ts"])
@@ -74,10 +83,12 @@ def _write(config_path: str | Path, notes: list[dict]) -> None:
 
 
 def add(config_path: str | Path, key, text, title="", now: int | None = None,
-        known=False) -> dict:
+        known=False, num=None, kind="note") -> dict:
     """Add a note to finding ``key``. ``title`` is the finding's title at the
     time, kept so the note still reads sensibly after the finding is gone.
-    ``known`` marks the finding known (see the module docstring)."""
+    ``known`` marks the finding known; ``num`` is the numbered occurrence it is
+    about, and ``kind`` "resolution" makes it what fixed that occurrence
+    (see the module docstring)."""
     key = str(key or "").strip()
     text = str(text or "").strip()
     if not key or len(key) > KEY_MAX:
@@ -86,9 +97,22 @@ def add(config_path: str | Path, key, text, title="", now: int | None = None,
         raise NoteError("the note is empty")
     if len(text) > MAX_TEXT:
         raise NoteError(f"keep a note under {MAX_TEXT} characters")
+    kind = kind or "note"
+    if kind not in KINDS:
+        raise NoteError("a note is either a note or a resolution")
+    if num is not None:
+        try:
+            num = int(num)
+        except (TypeError, ValueError):
+            raise NoteError("a finding number is a whole number") from None
+        if num < 1:
+            raise NoteError("a finding number is a whole number")
+    if kind == "resolution" and num is None:
+        raise NoteError("a resolution needs the finding number it resolves")
     note = {"id": secrets.token_hex(6), "key": key,
             "ts": int(time.time()) if now is None else int(now),
-            "text": text, "title": str(title or "")[:200], "known": known is True}
+            "text": text, "title": str(title or "")[:200], "known": known is True,
+            "num": num, "kind": kind}
     with _lock:
         notes = read(config_path)
         if len(notes) >= MAX_NOTES:

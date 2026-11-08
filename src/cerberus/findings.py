@@ -58,6 +58,14 @@ class Settings:
     temp_unit: str = "F"                # system.temperature_unit
 
 
+def settings_for(ui, tz) -> Settings:
+    """Settings from a config.UiConfig: the one place the UI and the collector
+    (which numbers findings, cerberus.findings_log) both build them from."""
+    return Settings(tz=tz, path_limit_mohm=ui.path_limit_mohm,
+                    full_remind_days=ui.full_remind_days, def_low_pct=ui.def_low_pct,
+                    service_due_mi=ui.service_due_mi, temp_unit=ui.temperature_unit)
+
+
 def fmt_temp(c: float, s: Settings) -> str:
     """A Celsius reading in the owner's unit."""
     return f"{c * 9 / 5 + 32:.0f} °F" if s.temp_unit == "F" else f"{c:.0f} °C"

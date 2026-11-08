@@ -5,7 +5,9 @@ cloud relay later):
 
   GET  /api/v1/now                live view (api.now_view)
   GET  /api/v1/history?range=..   charts (api.history_view); 24h | 7d | 30d | all
-  GET  /api/v1/findings           findings, open and recently resolved, with owner notes
+  GET  /api/v1/findings           findings, numbered, with owner notes; cleared ones needing
+                                  a resolution note; the latest closed ones
+  GET  /api/v1/findings/log       every numbered occurrence and how it ended (findings_log)
   GET  /api/v1/health             source freshness, coverage, gaps and causes
   GET  /api/v1/about              license, source link (AGPL-3.0 s.13), device id
   GET  /api/v1/settings           editable settings, values and where they came from,
@@ -24,8 +26,9 @@ cloud relay later):
                                   used for the van's only while it is with the van
                                   (cerberus.phonefix); needs a session
   POST /api/v1/settings           {"changes": {key: value}}; needs a session
-  POST /api/v1/notes              {key, text, title}: a note on a finding (cerberus.notes);
-                                  needs a session
+  POST /api/v1/notes              {key, text, title, num?, kind?}: a note on a finding
+                                  (cerberus.notes); kind "resolution" with num says what
+                                  fixed that occurrence; needs a session
   POST /api/v1/notes/delete       {id}; needs a session
   POST /api/v1/notes/known        {id, known}: mark a note's finding known, or flag it
                                   again; needs a session
@@ -268,6 +271,8 @@ def make_handler(app: App):
                     return self._json(200, health.health_view(conn, int(time.time()), ctx.tz))
                 if ep == "findings":
                     return self._json(200, api.findings_view(conn, ctx, notes=self._notes()))
+                if ep == "findings/log":
+                    return self._json(200, api.findings_log_view(conn, ctx, notes=self._notes()))
                 if ep == "history":
                     rng = parse_qs(url.query).get("range", ["24h"])[0]
                     try:
@@ -383,9 +388,10 @@ def make_handler(app: App):
         def _notes_post(self, ep: str, body: dict, addr: str):
             if ep == "notes":
                 note = notes.add(app.config_path, body.get("key"), body.get("text"),
-                                 body.get("title"), known=body.get("known") is True)
-                log.info("note added on %s from %s%s", note["key"], addr,
-                         " (marked known)" if note["known"] else "")
+                                 body.get("title"), known=body.get("known") is True,
+                                 num=body.get("num"), kind=body.get("kind") or "note")
+                log.info("%s added on %s #%s from %s%s", note["kind"], note["key"], note["num"],
+                         addr, " (marked known)" if note["known"] else "")
                 return self._json(200, {"note": note})
             if ep == "notes/known":
                 if not notes.set_known(app.config_path, body.get("id"), body.get("known") is True):
