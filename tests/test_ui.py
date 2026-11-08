@@ -134,6 +134,23 @@ def test_engine_charging_follows_the_acr_and_obd(db):
     assert not api.engine_charging(db.conn, NOW + api.LIVE_STALE_S + 5)
 
 
+def test_history_works_out_dc_loads_and_skips_engine_minutes(db):
+    t0 = (NOW // 3600) * 3600 - 3600
+    for k in range(4):                                  # four minutes, 3 packs
+        ts = t0 + k * 60
+        for p in (1, 2, 3):
+            db.conn.execute("INSERT INTO battery_samples (ts, pack_id, soc, voltage, current) "
+                            "VALUES (?, ?, 90, 13.0, ?)", (ts, p, -1.0 if k < 3 else 15.0))
+        db.conn.execute("INSERT INTO solar_samples (ts, charge_current) VALUES (?, 2.0)", (ts,))
+    # Minute 2: the engine turning (any bank figure then is untrustworthy).
+    db.conn.execute("INSERT INTO acr_samples (ts, field1, raw) VALUES (?, 2, '')", (t0 + 120,))
+    ctx = api.Context(pack_count=3)
+    rows = api.history_view(db.conn, ctx, "24h", NOW)["dc_w"]
+    # Minutes 0-1: 2 A solar + 3 A from the bank = 5 A at 13 V. Minute 2 is the
+    # engine; minute 3 (bank +15 A, solar 2 A) is an unseen charger. Both out.
+    assert sum(v for _, v in rows) == 65
+
+
 def test_now_view_gives_dc_loads_while_live(db):
     _write_snapshot(db, NOW - 3)
     assert api.now_view(db.conn, api.Context(), NOW)["dc_loads"]["a"] == 10.0
