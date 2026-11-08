@@ -134,6 +134,11 @@ def compute_day(db: Db, day: str, settings: Settings = DEFAULT_SETTINGS) -> dict
     if STATE_ABSORPTION in first:
         at = first[STATE_ABSORPTION]
         amps_at = next((r[2] for r in solar if r[0] >= at and r[2] is not None), None)
+        # How full the bank already was: a day that starts absorption nearly
+        # full floats near full whatever the cause (findings.early_float).
+        soc_near = [t for t in elec if abs(t - at) <= 120]
+        if soc_near:
+            m["soc_at_absorption"] = round(elec[min(soc_near, key=lambda t: abs(t - at))][3], 1)
         near = [t for t in elec if abs(t - at) <= 60]
         if near and amps_at is not None and amps_at >= MIN_AMPS:
             e = elec[min(near, key=lambda t: abs(t - at))]
