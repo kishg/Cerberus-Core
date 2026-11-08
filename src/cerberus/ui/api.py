@@ -89,6 +89,54 @@ def time_to_empty_h(soc: float | None, current: float | None,
     return round(soc / 100.0 * capacity_ah / -current, 1)
 
 
+# Below this, a negative load estimate is pack-current rounding (the packs
+# report in 0.25 A steps); beyond it, something charging the bank is unseen.
+DC_LOADS_SLACK_A = 1.0
+# ACR field1 while it joins chassis and house (3 idle, 1 ramping, 4 limit cut).
+ACR_CONNECTED = 2
+
+
+def dc_loads(snap: dict | None, engine_charging: bool) -> dict | None:
+    """The house DC loads, worked out rather than measured: what solar and
+    the inverter/charger put on the battery bus, less what the bank took.
+    Catches what the AC figures never show (fridge, fans, a DC air
+    conditioner). None without a bank; a null "a" with a reason when the
+    sum can't be trusted."""
+    bank = (snap or {}).get("bank")
+    if not bank or bank.get("current") is None:
+        return None
+    if engine_charging:
+        # The alternator's current into the bank isn't measured, so it
+        # would read as load.
+        return {"a": None, "reason": "engine"}
+    solar_a = ((snap.get("solar") or {}).get("charge_a")) or 0.0
+    ac = snap.get("ac")
+    inverter_a = 0.0
+    if ac:
+        if ac.get("dc_current") is not None:
+            inverter_a = ac["dc_current"]
+        elif ac.get("inverter_state") not in (None, "off"):
+            return {"a": None, "reason": "inverter"}
+    a = solar_a + inverter_a - bank["current"]
+    if a < -DC_LOADS_SLACK_A:
+        return {"a": None, "reason": "unmeasured"}
+    a = max(a, 0.0)
+    return {"a": round(a, 1), "w": round(a * (bank.get("voltage") or 0.0)), "ts": bank.get("ts")}
+
+
+def engine_charging(conn: sqlite3.Connection, now: int) -> bool:
+    """Whether the alternator can be charging the house bank now: the ACR
+    reports itself connected (field1 = 2, mapped on the 2026-11-06 drive), or
+    OBD sees the engine turning."""
+    row = conn.execute(
+        "SELECT ts, field1 FROM acr_samples WHERE field1 IS NOT NULL "
+        "ORDER BY ts DESC LIMIT 1").fetchone()
+    if row and now - row[0] <= LIVE_STALE_S and row[1] == ACR_CONNECTED:
+        return True
+    rpm = _latest_obd(conn, "rpm")
+    return bool(rpm and now - rpm[0] <= ENGINE_STALE_S and rpm[1] > 0)
+
+
 def now_view(conn: sqlite3.Connection, ctx: Context, now: int | None = None,
              notes: list[dict] | None = None) -> dict:
     now = int(time.time()) if now is None else now
@@ -110,6 +158,7 @@ def now_view(conn: sqlite3.Connection, ctx: Context, now: int | None = None,
         "snapshot": snap,
         "soc_trust": soc_trust(int(last_full) if last_full else None, now),
         "time_to_empty_h": None,
+        "dc_loads": dc_loads(snap, engine_charging(conn, now)) if live else None,
         "cabin": None,
         "outside": None,
 
