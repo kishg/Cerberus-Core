@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from datetime import tzinfo
 
 from .. import findings as findings_mod
+from .. import findings_log as findings_log_mod
 from ..detectors import KV_LAST_FULL_CHARGE
 from ..live import KV_SNAPSHOT
 from ..location import local
@@ -148,6 +149,8 @@ def now_view(conn: sqlite3.Connection, ctx: Context, now: int | None = None,
     last_full = _kv(conn, KV_LAST_FULL_CHARGE)
     open_ = [f for f in findings_mod.derive(conn, ctx.findings_settings(), now, notes)
              if f.status == findings_mod.OPEN]
+    log = findings_log_mod.history(conn, notes or [])
+    nums = {d["key"]: d.get("num") for d in numbered(open_, log)}
     out = {
         "now": now,
         "tz": ctx.tz_name,
@@ -165,10 +168,13 @@ def now_view(conn: sqlite3.Connection, ctx: Context, now: int | None = None,
         # Open findings only, briefly; /api/findings has the full cards.
         # Ones the owner marked known are counted, not listed.
         "findings": [
-            {k: f.as_dict()[k] for k in ("key", "severity", "title", "first_seen")}
+            {**{k: f.as_dict()[k] for k in ("key", "severity", "title", "first_seen")},
+             "num": nums.get(f.key)}
             for f in open_ if f.known is None
         ],
         "known_count": sum(f.known is not None for f in open_),
+        # Cleared by the data, waiting for the owner to say what fixed them.
+        "needs_note_count": sum(r["state"] == findings_log_mod.NEEDS_NOTE for r in log),
     }
     if bank:
         out["time_to_empty_h"] = time_to_empty_h(
@@ -307,18 +313,62 @@ def chassis_view(conn: sqlite3.Connection, ctx: Context, now: int | None = None,
     return out
 
 
+# How many closed occurrences the Findings screen lists; the log keeps them all.
+CLOSED_SHOWN = 20
+
+
+def _occurrence(r: dict) -> dict:
+    return {k: r[k] for k in ("num", "key", "title", "severity", "opened_ts", "cleared_ts",
+                              "explain", "prev_num", "state", "resolution", "notes")}
+
+
+def numbered(found: list, log: list[dict]) -> list[dict]:
+    """Findings as dicts with their occurrence number and state (open, fix
+    noted, cleared and waiting for a note, closed), each carrying only its own
+    occurrence's notes. Unnumbered while the collector hasn't logged them yet."""
+    latest: dict[str, dict] = {}
+    for r in log:                                    # newest first
+        latest.setdefault(r["key"], r)
+    out = []
+    for f in found:
+        d = f.as_dict()
+        r = latest.get(f.key)
+        if r is not None:
+            ids = {n["id"] for n in r["notes"]}
+            d.update(num=r["num"], prev_num=r["prev_num"], state=r["state"],
+                     resolution=r["resolution"],
+                     notes=[n for n in d["notes"] if n["id"] in ids])
+        out.append(d)
+    return out
+
+
 def findings_view(conn: sqlite3.Connection, ctx: Context, now: int | None = None,
                   notes: list[dict] | None = None) -> dict:
-    """Findings with the owner's notes on them; notes whose finding is no
-    longer shown come back as other_notes, newest first, so none is lost."""
+    """Findings with the owner's notes on them, numbered (cerberus.findings_log);
+    the occurrences the data has cleared that still need a note saying what
+    fixed them; the latest closed ones; and notes belonging to none of those,
+    newest first, so none is lost."""
     now = int(time.time()) if now is None else now
     notes = notes or []
     found = findings_mod.derive(conn, ctx.findings_settings(), now, notes)
+    log = findings_log_mod.history(conn, notes)
+    awaiting = [_occurrence(r) for r in log if r["state"] == findings_log_mod.NEEDS_NOTE]
+    closed = [_occurrence(r) for r in log if r["state"] == findings_log_mod.CLOSED][:CLOSED_SHOWN]
     shown = {f.key for f in found}
+    placed = {n["id"] for r in awaiting + closed for n in r["notes"]}
     return {"now": now, "tz": ctx.tz_name, "temp_unit": ctx.temp_unit,
-            "findings": [f.as_dict() for f in found],
-            "other_notes": sorted((n for n in notes if n["key"] not in shown),
+            "findings": numbered(found, log),
+            "awaiting": awaiting, "closed": closed, "numbered": bool(log),
+            "other_notes": sorted((n for n in notes
+                                   if n["key"] not in shown and n["id"] not in placed),
                                   key=lambda n: -n["ts"])}
+
+
+def findings_log_view(conn: sqlite3.Connection, ctx: Context,
+                      notes: list[dict] | None = None) -> dict:
+    """Every numbered occurrence, newest first, with its notes and how it
+    ended: the record Co-Pilot learns from."""
+    return {"tz": ctx.tz_name, "occurrences": findings_log_mod.history(conn, notes or [])}
 
 
 def _utc_offset(tz: tzinfo | None, now: int) -> int:

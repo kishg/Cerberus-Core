@@ -25,6 +25,8 @@ from . import live as live_mod
 from .ha_mqtt import HaBroker, NoBroker
 from . import vehicle as vehicle_mod
 from . import fastcapture as fastcapture_mod
+from . import findings as findings_mod
+from . import findings_log as findings_log_mod
 from . import vrm_cloud
 from . import solar_path as solar_path_mod
 from .ac import AcState
@@ -65,6 +67,7 @@ KV_DEVICE_ID = "device.id"     # stable box identity (pairing, sync, relay later
 # A drive is only processed SETTLE_S (15 min) after it ends, so checking more
 # often than this buys nothing; each check is a few indexed queries.
 DRIVES_TICK_PERIOD = 300
+FINDINGS_TICK_PERIOD = 300     # numbering findings (cerberus.findings_log)
 CLOUD_RETRY_SECONDS = 300       # after a failed cloud start (no internet, VRM down)
 HEATER_TICK_PERIOD = 30         # one ac_samples write; on/off within a sample
 
@@ -441,6 +444,22 @@ class Cerberus:
             self.last_uptime_ts = now
             self.db.mark_uptime(now)
 
+    def _findings_tick(self) -> None:
+        """Number findings as they open and note when they clear
+        (cerberus.findings_log), with the same settings the UI uses."""
+        now = int(time.time())
+        if now - getattr(self, "last_findings_tick_ts", 0) < FINDINGS_TICK_PERIOD:
+            return
+        self.last_findings_tick_ts = now
+        try:
+            path = getattr(self, "config_path", None)
+            ui = cfg_mod.load_ui(path) if path else cfg_mod.UiConfig()
+            found = findings_mod.derive(self.db.conn, findings_mod.settings_for(ui, self.van_tz()), now)
+            for what, num, key in findings_log_mod.sync(self.db.conn, found, now):
+                log.info("finding #%d %s: %s", num, what, key)
+        except Exception:
+            log.exception("findings log update failed")
+
     def van_tz(self):
         """The van's time zone for the nightly jobs: config, else GX, else host."""
         return self.location.timezone(self.cfg.timezone)
@@ -790,6 +809,7 @@ class Cerberus:
                 self._phone_tick()
                 self._snapshot_tick(online)
                 self._uptime_tick()
+                self._findings_tick()
                 if self._config_changed():
                     break
         finally:

@@ -286,6 +286,21 @@ CREATE TABLE IF NOT EXISTS drives (
   report_path TEXT,
   created_ts INTEGER NOT NULL
 );
+
+-- Every occurrence of a finding, numbered for good (cerberus.findings_log).
+-- Written by the collector; the owner's resolution notes, which close an
+-- occurrence, live in the notes file beside config.yaml (cerberus.notes).
+CREATE TABLE IF NOT EXISTS finding_log (
+  num INTEGER PRIMARY KEY AUTOINCREMENT,
+  key TEXT NOT NULL,
+  title TEXT NOT NULL,
+  severity TEXT NOT NULL,      -- the highest it reached
+  opened_ts INTEGER NOT NULL,
+  cleared_ts INTEGER,          -- when the data stopped showing it; NULL while open
+  last_seen INTEGER,
+  explain TEXT,                -- as it last read
+  prev_num INTEGER             -- the previous occurrence of the same finding
+);
 """
 
 

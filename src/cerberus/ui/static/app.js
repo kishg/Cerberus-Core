@@ -187,8 +187,14 @@ function renderNow(d) {
     li.append(statusIcon("info"), what);
     list.append(li);
   }
+  if (d.needs_note_count) {
+    const li = el("li"), what = el("div", { class: "what" });
+    what.append(el("a", { href: "#findings" }, `${d.needs_note_count} cleared: add what fixed ${d.needs_note_count === 1 ? "it" : "them"}`));
+    li.append(statusIcon("info"), what);
+    list.append(li);
+  }
   for (const f of d.findings) {
-    const li = el("li"), what = el("div", { class: "what" }), a = el("a", { href: `#findings` }, f.title);
+    const li = el("li"), what = el("div", { class: "what" }), a = el("a", { href: `#findings` }, numTitle(f));
     what.append(a);
     li.append(statusIcon(SEV[f.severity].icon), what,
       el("div", { class: "when" }, f.first_seen ? `since ${dayOnly(f.first_seen)}` : ""));
@@ -332,7 +338,12 @@ function findingCard(f) {
   }
   const todo = el("p", { class: "todo" });
   todo.append(el("b", {}, "What to do: "), document.createTextNode(f.action));
-  card.append(sev, el("h2", {}, f.title), el("p", {}, f.explain), todo);
+  card.append(sev, el("h2", {}, numTitle(f)), el("p", {}, f.explain), todo);
+  if (f.state === "fix_noted") {
+    const line = el("div", { class: "trust" });
+    statusLine(line, "info", "Fix noted: waiting for the data to confirm it");
+    card.insertBefore(line, todo);
+  }
   const ev = f.evidence;
   if (ev && ev.kind === "series" && ev.points.length) {
     const key = el("div", { class: "legend" });
@@ -366,10 +377,15 @@ function findingCard(f) {
   return card;
 }
 
+// "#14 Title": each occurrence of a finding is numbered for good (findings_log).
+function numTitle(f) { return f.num ? `#${f.num} ${f.title}` : f.title; }
+
 // The owner's notes on a finding: what they know that the data can't show
 // ("tightened the lugs"). The server uses the latest to say what changed since.
+// A resolution says what fixed one numbered occurrence; Co-Pilot learns from those.
 function noteItem(n, onDelete) {
   const li = el("li"), what = el("div", { class: "what" }, n.text);
+  if (n.kind === "resolution") what.append(el("span", { class: "src known-tag" }, "What fixed it"));
   if (n.known) what.append(el("span", { class: "src known-tag" }, "Marked known"));
   li.append(what, el("div", { class: "when" }, dayTime(n.ts)));
   if (onDelete) {
@@ -407,34 +423,74 @@ function notesBlock(f) {
     box.append(p);
     return box;
   }
-  const ta = el("textarea", { rows: "2", maxlength: "1000", class: "note-text", "data-key": f.key,
-    "aria-label": `Note on: ${f.title}`, placeholder: "e.g. Tightened the charge controller's battery lugs" });
-  ta.value = state.noteDrafts[f.key] || "";
-  ta.addEventListener("input", () => { state.noteDrafts[f.key] = ta.value; });
-  const btn = el("button", { type: "button", class: "btn quiet" }, "Add note");
+  // Cleared by the data with no resolution yet: the form asks what fixed it.
+  const asking = f.state === "needs_note";
+  const draft = f.num ? `#${f.num}` : f.key;
+  const ta = el("textarea", { rows: "2", maxlength: "1000", class: "note-text", "data-key": draft,
+    "aria-label": `${asking ? "What fixed" : "Note on"}: ${numTitle(f)}`,
+    placeholder: asking ? "What caused it, and what fixed it?" : "e.g. Tightened the charge controller's battery lugs" });
+  ta.value = state.noteDrafts[draft] || "";
+  ta.addEventListener("input", () => { state.noteDrafts[draft] = ta.value; });
+  const btn = el("button", { type: "button", class: "btn quiet" }, asking ? "Save what fixed it" : "Add note");
   const msg = el("div", { class: "msg", role: "status" });
   const knownBox = el("input", { type: "checkbox" });
   const knownLbl = el("label", { class: "known-opt" });
   knownLbl.append(knownBox, document.createTextNode(
     " Known: stop flagging this until it happens again"));
-  btn.addEventListener("click", async () => {
-    if (!ta.value.trim()) return;
-    btn.disabled = true; msg.className = "msg"; msg.textContent = "";
+  const fixBox = el("input", { type: "checkbox" });
+  const fixLbl = el("label", { class: "known-opt" });
+  fixLbl.append(fixBox, document.createTextNode(
+    " This is what fixed it: the data confirms it when the finding clears"));
+  const save = async (text, resolution, b) => {
+    b.disabled = true; msg.className = "msg"; msg.textContent = "";
     try {
-      await postJSON("/notes", { key: f.key, title: f.title, text: ta.value, known: knownBox.checked });
-      delete state.noteDrafts[f.key];
+      await postJSON("/notes", { key: f.key, title: f.title, text, num: f.num || null,
+        kind: resolution ? "resolution" : "note", known: !resolution && knownBox.checked });
+      delete state.noteDrafts[draft];
       loadFindings();
     } catch (err) {
-      btn.disabled = false; msg.className = "msg err"; msg.textContent = err.message;
+      b.disabled = false; msg.className = "msg err"; msg.textContent = err.message;
       if (/sign in/i.test(err.message)) setToken(null);
     }
-  });
+  };
+  btn.addEventListener("click", () => { if (ta.value.trim()) save(ta.value, asking || fixBox.checked, btn); });
   const row = el("div", { class: "note-row" });
   row.append(ta, btn);
   box.append(row);
-  if (f.status === "open") box.append(knownLbl);
+  if (asking) {
+    const unknown = el("button", { type: "button", class: "link-btn" }, "Cleared on its own / don't know");
+    unknown.addEventListener("click", () => save("Cleared on its own; cause not known.", true, unknown));
+    box.append(unknown);
+  } else if (f.status === "open") {
+    box.append(knownLbl);
+    if (f.num) box.append(fixLbl);
+  }
   box.append(msg);
   return box;
+}
+
+// An occurrence the data cleared long enough ago that its finding is no longer
+// worked out: shown from the log, still waiting for what fixed it.
+function occurrenceCard(r) {
+  const card = el("section", { class: "card finding resolved" });
+  const sev = el("div", { class: "sev" });
+  sev.append(statusIcon("good"), el("span", {}, "Cleared"),
+    el("span", { class: "since" }, `${dayOnly(r.opened_ts)} – ${dayOnly(r.cleared_ts)}`));
+  card.append(sev, el("h2", {}, numTitle(r)), el("p", {}, r.explain || ""));
+  card.append(notesBlock({ ...r, status: "resolved" }));
+  return card;
+}
+
+function closedList(rows) {
+  const c = el("section", { class: "card notes" }), ul = el("ul", { class: "events" });
+  for (const r of rows) {
+    const li = el("li"), what = el("div", { class: "what" });
+    what.append(el("b", {}, `${numTitle(r)}: `), document.createTextNode(r.resolution ? r.resolution.text : ""));
+    li.append(what, el("div", { class: "when" }, `${dayOnly(r.opened_ts)} – ${dayOnly(r.cleared_ts)}`));
+    ul.append(li);
+  }
+  c.append(ul);
+  return c;
 }
 
 function renderFindings(d) {
@@ -457,9 +513,22 @@ function renderFindings(d) {
     holder.append(el("div", { class: "section-label" }, "Known: flagged again if they happen again"));
     known.forEach((f) => holder.append(findingCard(f)));
   }
-  if (done.length) {
+  if (!d.numbered && done.length) {
     holder.append(el("div", { class: "section-label" }, "Recently resolved"));
     done.forEach((f) => holder.append(findingCard(f)));
+  }
+  // Cleared by the data; each stays here until the owner says what fixed it.
+  const awaiting = d.awaiting || [];
+  if (awaiting.length) {
+    holder.append(el("div", { class: "section-label" }, "Cleared: add what fixed it"));
+    for (const r of awaiting) {
+      const f = done.find((x) => x.num === r.num);
+      holder.append(f ? findingCard(f) : occurrenceCard(r));
+    }
+  }
+  if ((d.closed || []).length) {
+    holder.append(el("div", { class: "section-label" }, "Closed"));
+    holder.append(closedList(d.closed));
   }
   // Notes whose finding has gone (resolved more than two weeks ago): kept, not lost.
   const other = d.other_notes || [];
