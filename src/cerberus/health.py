@@ -69,6 +69,12 @@ SOURCES = (
 )
 
 
+# With the inverter off the Cerbo publishes almost nothing for it (its whole AC
+# tree goes null), so rows arrive only every few minutes: that is the inverter
+# being off, not the feed failing. Still stale past this.
+AC_OFF_STALE_S = 900
+
+
 def _has_table(conn, name: str) -> bool:
     return _one(conn, "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
                 (name,)) is not None
@@ -94,6 +100,11 @@ def sources(conn: sqlite3.Connection, now: int) -> list[dict]:
             status = "away" if s.in_van_only else "stale"
         row = {"key": s.key, "label": s.label, "last_ts": last, "age_s": age,
                "status": status, "note": s.note}
+        if s.key == "ac" and _one(conn, "SELECT inverter_state FROM ac_samples WHERE source = 'mqtt' "
+                                        "ORDER BY ts DESC LIMIT 1") == 0:
+            row["note"] = "The inverter is off."
+            if age <= AC_OFF_STALE_S:
+                row["status"] = "off"
         if s.key == "cabin":
             src = _one(conn, "SELECT source FROM cabin_samples ORDER BY ts DESC LIMIT 1")
             row["note"] = {"ble": "Read over Bluetooth.",
