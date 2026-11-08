@@ -363,6 +363,7 @@ def history_view(conn: sqlite3.Connection, ctx: Context, rng: str,
     out["ac_w"] = [list(r) for r in conn.execute(
         f"SELECT {t} t, ROUND(AVG(consumption_w), 0) FROM ac_samples "
         "WHERE ts >= ? AND consumption_w IS NOT NULL GROUP BY t ORDER BY t", (since,))]
+    out["dc_w"] = dc_loads_history(conn, ctx, since, t)
     out["cabin_f"] = [list(r) for r in conn.execute(
         f"SELECT {t} t, ROUND(AVG(air_temp_f), 1) FROM cabin_samples "
         "WHERE ts >= ? AND air_temp_f IS NOT NULL GROUP BY t ORDER BY t", (since,))]
@@ -371,6 +372,34 @@ def history_view(conn: sqlite3.Connection, ctx: Context, rng: str,
         "WHERE ts >= ? AND air_temp_f IS NOT NULL GROUP BY t ORDER BY t", (since,))]
     out["daily_yield_kwh"] = daily_yield(conn, ctx, since)
     return out
+
+
+def dc_loads_history(conn: sqlite3.Connection, ctx: Context, since: int, t: str) -> list[list]:
+    """[bucket, W] of house DC loads, worked out per minute as dc_loads does
+    it live: solar + inverter/charger DC current - bank current. Minutes the
+    alternator may be charging (ACR connected, engine turning) are left out,
+    as are minutes clearly below zero (an unseen charger); the rest clamp at 0."""
+    return [list(r) for r in conn.execute(
+        f"""
+        WITH b0 AS (
+          SELECT ts, AVG(voltage) v, SUM(current) i FROM battery_samples
+          WHERE ts >= :since AND pack_id > 0 GROUP BY ts HAVING COUNT(*) = :packs
+        ),
+        b AS (SELECT ts / 60 m, AVG(v) v, AVG(i) i FROM b0 GROUP BY m),
+        s AS (SELECT ts / 60 m, AVG(charge_current) a FROM solar_samples
+              WHERE ts >= :since GROUP BY m),
+        x AS (SELECT ts / 60 m, AVG(COALESCE(inverter_dc_current, 0)) a FROM ac_samples
+              WHERE ts >= :since GROUP BY m),
+        e AS (SELECT ts / 60 m FROM acr_samples WHERE ts >= :since AND field1 = :acr_on
+              UNION SELECT ts / 60 FROM obd_samples
+              WHERE ts >= :since AND name = 'rpm' AND value > 0),
+        d AS (SELECT b.m * 60 ts, b.v, COALESCE(s.a, 0) + COALESCE(x.a, 0) - b.i a
+              FROM b LEFT JOIN s USING (m) LEFT JOIN x USING (m)
+              WHERE b.m NOT IN (SELECT m FROM e))
+        SELECT {t} t, ROUND(AVG(MAX(a, 0) * v), 0) FROM d
+        WHERE a >= -:slack GROUP BY t ORDER BY t
+        """, {"since": since, "packs": ctx.pack_count, "acr_on": ACR_CONNECTED,
+              "slack": DC_LOADS_SLACK_A})]
 
 
 def daily_yield(conn: sqlite3.Connection, ctx: Context, since: int) -> list[list]:

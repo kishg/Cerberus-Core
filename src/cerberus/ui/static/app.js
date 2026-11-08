@@ -115,10 +115,13 @@ async function postJSON(path, body) {
 
 // ---------------------------------------------------------------- Now
 
-function tile(label, value, detail) {
-  const t = el("div", { class: "card tile" });
+// A tile with a chart behind it links to that chart on History (CHARTS ids).
+function tile(label, value, detail, chart) {
+  const t = chart ? el("a", { class: "card tile linked", href: "#history", "aria-label": `${label}: ${value}, show history` })
+    : el("div", { class: "card tile" });
   t.append(el("div", { class: "label" }, label), el("div", { class: "value" }, value));
   if (detail) t.append(el("div", { class: "detail" }, detail));
+  if (chart) t.addEventListener("click", () => { state.focusChart = chart; });
   return t;
 }
 
@@ -146,20 +149,20 @@ function renderNow(d) {
   if (bank) {
     const i = bank.current;
     const dir = i === null ? "" : i > 0.5 ? "Charging" : i < -0.5 ? "Discharging" : "Idle";
-    tiles.append(tile("Net current", `${i > 0 ? "+" : ""}${fmtNum(i, 1)} A`, `${dir} · ${fmtNum(bank.power, 0)} W`));
-    tiles.append(tile("Bank voltage", `${fmtNum(bank.voltage, 2)} V`, bank.source === "monitor" ? "Battery monitor" : `${bank.packs.length} packs`));
+    tiles.append(tile("Net current", `${i > 0 ? "+" : ""}${fmtNum(i, 1)} A`, `${dir} · ${fmtNum(bank.power, 0)} W`, "net-current"));
+    tiles.append(tile("Bank voltage", `${fmtNum(bank.voltage, 2)} V`, bank.source === "monitor" ? "Battery monitor" : `${bank.packs.length} packs`, "bank-voltage"));
     const tte = d.time_to_empty_h;
     tiles.append(tile("Time to empty", tte === null ? "–" : `${fmtNum(tte, tte < 10 ? 1 : 0)} h`,
-      tte !== null ? "At the current draw" : dir === "Charging" ? "Charging" : dir === "Idle" ? "Not discharging" : "Capacity unknown"));
+      tte !== null ? "At the current draw" : dir === "Charging" ? "Charging" : dir === "Idle" ? "Not discharging" : "Capacity unknown", "bank-charge"));
   }
-  if (solar) tiles.append(tile("Solar", `${fmtNum(solar.pv_w, 0)} W`, `${solar.state || "–"} · today ${fmtNum(solar.yield_today_kwh * 1000, 0)} Wh`));
+  if (solar) tiles.append(tile("Solar", `${fmtNum(solar.pv_w, 0)} W`, `${solar.state || "–"} · today ${fmtNum(solar.yield_today_kwh * 1000, 0)} Wh`, "solar-power"));
   if (ac) tiles.append(tile("AC load", `${fmtNum(ac.consumption_w, 0)} W`,
-    `${ac.shore_connected ? "Shore power" : "Inverter"}${ac.inverter_state ? " · " + ac.inverter_state : ""}`));
+    `${ac.shore_connected ? "Shore power" : "Inverter"}${ac.inverter_state ? " · " + ac.inverter_state : ""}`, "ac-load"));
   const dl = d.dc_loads;
   if (dl) tiles.append(tile("DC loads", dl.a === null ? "–" : `${fmtNum(dl.w, 0)} W`,
-    dl.a === null ? DC_LOADS_WHY[dl.reason] : `${fmtNum(dl.a, 1)} A · worked out`));
-  if (d.cabin) tiles.append(tile("Cabin", fmtTempF(d.cabin.air_temp_f), `${fmtNum(d.cabin.humidity_pct, 0)}% humidity · ${ago(d.cabin.ts, d.now)}`));
-  if (d.outside) tiles.append(tile("Outside", fmtTempF(d.outside.air_temp_f), `${fmtNum(d.outside.humidity_pct, 0)}% humidity · forecast`));
+    dl.a === null ? DC_LOADS_WHY[dl.reason] : `${fmtNum(dl.a, 1)} A · worked out`, "dc-loads"));
+  if (d.cabin) tiles.append(tile("Cabin", fmtTempF(d.cabin.air_temp_f), `${fmtNum(d.cabin.humidity_pct, 0)}% humidity · ${ago(d.cabin.ts, d.now)}`, "temperature"));
+  if (d.outside) tiles.append(tile("Outside", fmtTempF(d.outside.air_temp_f), `${fmtNum(d.outside.humidity_pct, 0)}% humidity · forecast`, "temperature"));
 
   const tbody = document.querySelector("#packs tbody");
   tbody.replaceChildren();
@@ -1389,14 +1392,16 @@ function renderHistory(h) {
   const col = (rows, k) => rows.map((r) => [r[0], r[k]]);
 
   const defs = [
-    { title: "Bank charge", sub: "State of charge, %", pts: col(h.bank, 1), unit: "%", d: 0 },
-    { title: "Bank voltage", sub: "Volts, mean of packs", pts: col(h.bank, 2), unit: " V", d: 2 },
-    { title: "Net current", sub: "Amps into (+) or out of (−) the bank", pts: col(h.bank, 3), unit: " A", d: 1, zero: true },
-    { title: "Solar power", sub: "Watts from the array", pts: h.solar_w, unit: " W", d: 0, zero: true },
-    { title: "AC load", sub: "Watts on the inverter output", pts: h.ac_w, unit: " W", d: 0, zero: true },
+    { id: "bank-charge", title: "Bank charge", sub: "State of charge, %", pts: col(h.bank, 1), unit: "%", d: 0 },
+    { id: "bank-voltage", title: "Bank voltage", sub: "Volts, mean of packs", pts: col(h.bank, 2), unit: " V", d: 2 },
+    { id: "net-current", title: "Net current", sub: "Amps into (+) or out of (−) the bank", pts: col(h.bank, 3), unit: " A", d: 1, zero: true },
+    { id: "solar-power", title: "Solar power", sub: "Watts from the array", pts: h.solar_w, unit: " W", d: 0, zero: true },
+    { id: "ac-load", title: "AC load", sub: "Watts on the inverter output", pts: h.ac_w, unit: " W", d: 0, zero: true },
+    { id: "dc-loads", title: "DC loads", sub: "Watts, worked out; engine-running times left out", pts: h.dc_w || [], unit: " W", d: 0, zero: true },
   ];
   for (const c of defs) {
     const { card, box, tableWrap } = chartCard(c.title, c.sub);
+    card.id = `chart-${c.id}`;
     holder.append(card);
     lineChart(box, [{ name: c.title, color: "--series-1", pts: c.pts }], { ...common, unit: c.unit, decimals: c.d, zero: c.zero, label: c.title });
     fillTable(tableWrap, ["Time", c.title], c.pts.map(([t, v]) => [when(t), `${fmtNum(v, c.d)}${c.unit}`]));
@@ -1404,6 +1409,7 @@ function renderHistory(h) {
 
   const temps = [{ name: "Cabin", color: "--series-1", pts: airPts(h.cabin_f) }, { name: "Outside", color: "--series-2", pts: airPts(h.outside_f) }];
   const tc = chartCard("Temperature", `°${state.unit}, cabin sensor and outside forecast`, temps);
+  tc.card.id = "chart-temperature";
   holder.append(tc.card);
   lineChart(tc.box, temps, { ...common, unit: `°${state.unit}`, decimals: 0, label: "Temperature" });
   const outside = new Map(h.outside_f.map((p) => [p[0], p[1]]));
@@ -1416,6 +1422,14 @@ function renderHistory(h) {
     holder.append(yc.card);
     barChart(yc.box, h.daily_yield_kwh, { label: "Daily solar yield" });
     fillTable(yc.tableWrap, ["Day", "Yield"], h.daily_yield_kwh.map(([d, v]) => [d, `${fmtNum(v, 2)} kWh`]));
+  }
+  // Arrived from a Now tile: bring its chart into view, once.
+  const focus = state.focusChart && document.getElementById(`chart-${state.focusChart}`);
+  state.focusChart = null;
+  if (focus) {
+    focus.scrollIntoView({ block: "start" });
+    focus.classList.add("focused");
+    setTimeout(() => focus.classList.remove("focused"), 1600);
   }
 }
 
