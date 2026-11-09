@@ -383,9 +383,12 @@ def test_chassis_view_leaves_out_warnings_that_stopped_arriving(db):
 
 
 def test_chassis_view_marks_the_low_tyre(db):
-    for i in range(6):
-        psi = 45 if i == 5 else 55
-        db.insert_vehicle_samples(NOW - 3600 * (6 - i), "mercedes_me", {"tire_fl_psi": psi, "tire_rr_psi": 66})
+    for i in range(4):                       # four drives; the last ends 10 psi down
+        start, psi = NOW - 3600 * (8 - 2 * i), 45 if i == 3 else 55
+        db.insert_vehicle_samples(start, "mercedes_me", {"ignition_state": 4})
+        db.insert_vehicle_samples(start + 1800, "mercedes_me",
+                                  {"ignition_state": 4, "tire_fl_psi": psi, "tire_rr_psi": 66})
+        db.insert_vehicle_samples(start + 1860, "mercedes_me", {"ignition_state": 0})
     t = api.chassis_view(db.conn, api.Context(), NOW)["tyres"]
     assert t["fl"]["value"] == 45 and t["fl"]["low_from"] == 55
     assert "low_from" not in t["rr"] and t["fr"] is None

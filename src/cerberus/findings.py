@@ -479,8 +479,16 @@ def def_low(conn, s: Settings, now: int) -> list[Finding]:
 
 # starter_battery_state (cerberus.vehicle): Mercedes coding.
 _STARTER = {0: None, 4: None, 1: (INFO, "fair"), 3: (ATTENTION, "weak"), 2: (URGENT, "poor")}
-# A tyre this far below its own 30-day median is losing air.
+# Tyre pressure is judged against hot readings (the end of a drive at least
+# TYRE_HOT_MIN_S long), since cold starts read low with the weather and parked
+# imports repeat the last value. A hot reading this far below the tyre's own
+# hot median is losing air; any reading, cold included, this many psi below it
+# is an anomaly.
 TYRE_DROP_PCT = 10.0
+TYRE_ANOMALY_PSI = 15.0
+TYRE_HOT_MIN_S = 10 * 60
+TYRE_BASELINE_DAYS = 90
+IGNITION_ON = 4          # Mercedes ignition_state while the engine runs
 _TYRES = {"tire_fl_psi": "front left", "tire_fr_psi": "front right",
           "tire_rl_psi": "rear left", "tire_rr_psi": "rear right"}
 
@@ -517,17 +525,54 @@ def starter_battery(conn, s: Settings, now: int) -> list[Finding]:
         first_seen=bad[0][0], last_seen=bts)]
 
 
+def _drives(conn, since: int) -> list[tuple[int, int]]:
+    """(on, off) spans of the imported ignition_state; an open last span ends at
+    its latest sample."""
+    spans, on, last = [], None, None
+    for ts, v in _vehicle_series(conn, "ignition_state", since):
+        if v == IGNITION_ON and on is None:
+            on = ts
+        elif v != IGNITION_ON and on is not None:
+            spans.append((on, ts))
+            on = None
+        last = ts
+    if on is not None:
+        spans.append((on, last))
+    return spans
+
+
+def _hot_readings(conn, name: str, since: int) -> list[tuple[int, float]]:
+    """The last reading of each drive, if taken TYRE_HOT_MIN_S or more after
+    the ignition came on."""
+    rows = _vehicle_series(conn, name, since)
+    hot = []
+    for on, off in _drives(conn, since):
+        inside = [(ts, v) for ts, v in rows if on + TYRE_HOT_MIN_S <= ts <= off]
+        if inside:
+            hot.append(inside[-1])
+    return hot
+
+
 def low_tyres(conn, now: int) -> dict[str, tuple[int, float, float]]:
-    """Tyres clearly below their own 30-day level: name -> (ts, psi, median)."""
+    """Tyres clearly below their own hot level: name -> (ts, psi, hot median).
+    Either the latest hot reading is TYRE_DROP_PCT under the median of the
+    earlier ones, or the latest reading of any kind is TYRE_ANOMALY_PSI under
+    the median of all of them."""
     low = {}
+    since = now - TYRE_BASELINE_DAYS * DAY
     for name in _TYRES:
-        rows = _vehicle_series(conn, name, now - 30 * DAY)
-        if len(rows) < 5:
-            continue
-        med = _median([v for _, v in rows[:-1]])
-        ts, v = rows[-1]
-        if med and v <= med * (1 - TYRE_DROP_PCT / 100):
-            low[name] = (ts, v, med)
+        hot = _hot_readings(conn, name, since)
+        if len(hot) >= 3:
+            med = _median([v for _, v in hot[:-1]])
+            ts, v = hot[-1]
+            if v <= med * (1 - TYRE_DROP_PCT / 100):
+                low[name] = (ts, v, med)
+                continue
+        if hot:
+            med = _median([v for _, v in hot])
+            ts, v = _vehicle_series(conn, name, since)[-1]
+            if v <= med - TYRE_ANOMALY_PSI:
+                low[name] = (ts, v, med)
     return low
 
 
@@ -542,7 +587,8 @@ def tyre_pressure(conn, s: Settings, now: int) -> list[Finding]:
         if warn[-1][1] >= 1:
             problems.append("the van's tyre-pressure warning is on")
     for name, (ts, v, med) in low_tyres(conn, now).items():
-        problems.append(f"{_TYRES[name]} is at {v:.0f} psi, down from {med:.0f} psi")
+        problems.append(f"{_TYRES[name]} is at {v:.0f} psi, against {med:.0f} psi usually "
+                        "at the end of a drive")
         last_bad = max(last_bad or 0, ts)
         first_bad = min(first_bad or ts, ts)
     status = _status_for(last_bad, bool(problems), now)
