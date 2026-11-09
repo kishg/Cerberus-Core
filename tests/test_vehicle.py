@@ -80,12 +80,55 @@ def test_starter_battery_resolves(db):
     assert _keys(db)["starter_battery"].status == "resolved"
 
 
-def test_tyre_low_against_its_own_median(db):
+HOT = {"tire_fl_psi": 52.0, "tire_fr_psi": 52.0, "tire_rl_psi": 61.0, "tire_rr_psi": 62.0}
+
+
+def _drive(db, start, minutes=20, cold=-5.0, **hot):
+    """A drive: a cold-start reading `cold` psi under HOT, then the end-of-drive
+    reading (HOT with overrides) after `minutes`, then ignition off."""
+    end = start + minutes * 60
+    _snap(db, start, ignition_state=4, **{k: v + cold for k, v in HOT.items()})
+    _snap(db, end, ignition_state=4, **{**HOT, **hot})
+    _snap(db, end + 60, ignition_state=0, **{**HOT, **hot})
+
+
+def _tyre(db):
+    return _keys(db).get("tyre_pressure")
+
+
+def test_tyre_low_against_its_hot_readings(db):
+    for k in range(3):
+        _drive(db, NOW - (10 - k) * DAY)
+    _drive(db, NOW - 3600, tire_rl_psi=54.0)            # 11% under 61 hot
+    f = _tyre(db)
+    assert f.status == "open"
+    assert "rear left is at 54 psi, against 61 psi usually at the end of a drive" in f.explain
+
+
+def test_cold_starts_and_parked_repeats_are_not_a_drop(db):
+    # 2026-11-09: the import repeated 65/66 psi while parked, and the cold start
+    # read 8-9 psi under the hot end-of-drive values. Neither is a leak.
     for k in range(6):
-        _snap(db, NOW - (10 - k) * DAY)
-    _snap(db, NOW - 600, tire_rl_psi=56.0)
-    f = _keys(db)["tyre_pressure"]
-    assert f.status == "open" and "rear left is at 56 psi, down from 65 psi" in f.explain
+        _snap(db, NOW - (20 - k) * DAY)
+    for k in range(3):
+        _drive(db, NOW - (10 - k) * DAY)
+    _drive(db, NOW - 3600, cold=-8.0, tire_rl_psi=59.0)
+    _snap(db, NOW - 600, ignition_state=4, **{k: v - 8.0 for k, v in HOT.items()})
+    assert _tyre(db) is None
+
+
+def test_a_reading_far_under_hot_is_an_anomaly_even_cold(db):
+    _drive(db, NOW - 2 * DAY)
+    _snap(db, NOW - 600, ignition_state=4, tire_rr_psi=46.0)  # 16 under 62 hot
+    f = _tyre(db)
+    assert f.status == "open" and "rear right is at 46 psi, against 62 psi" in f.explain
+
+
+def test_short_drives_give_no_hot_reading(db):
+    for k in range(4):
+        _drive(db, NOW - (10 - k) * DAY, minutes=8)
+    _snap(db, NOW - 600, ignition_state=4, tire_rr_psi=40.0)
+    assert _tyre(db) is None                             # no hot baseline yet
 
 
 def test_tyre_warning_flag(db):
