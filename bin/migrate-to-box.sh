@@ -44,17 +44,18 @@ ssh "$TARGET" 'test -x /opt/cerberus/.venv/bin/python && test -d /etc/cerberus' 
   echo "migrate: $TARGET has no Cerberus install; run bin/install-linux.sh there first" >&2
   exit 69
 }
-if [[ $FORCE -eq 0 ]] && ssh "$TARGET" 'sudo test -e /etc/cerberus/config.yaml'; then
-  echo "migrate: $TARGET is already set up; --force replaces its settings and history" >&2
-  exit 73
-fi
+# Whether the box is already set up is checked by install-bundle.sh, as root:
+# /etc/cerberus isn't readable by the login user, and sudo over a plain ssh
+# can't ask for a password (2026-11-10: the check silently passed).
 
 WORK="$(mktemp -d)"
 chmod 700 "$WORK"
 REMOTE=/tmp/cerberus-migrate.$$
 cleanup() {
   rm -rf "$WORK"
-  ssh "$TARGET" "sudo rm -rf $REMOTE" >/dev/null 2>&1 || true
+  # The bundle was copied as the login user, so no sudo: a sudo here can't ask
+  # for a password and would leave the Cerbo password behind in /tmp.
+  ssh "$TARGET" "rm -rf $REMOTE" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
@@ -68,7 +69,9 @@ cp "$CODE/bin/install-bundle.sh" "$WORK/bundle/"
 rsync -a --chmod=go-rwx "$WORK/bundle/" "$TARGET:$REMOTE/"
 
 say "Installing on $TARGET (sudo)"
-ssh -t "$TARGET" "sudo bash $REMOTE/install-bundle.sh $REMOTE"
+ARGS=""
+[[ $FORCE -eq 1 ]] && ARGS="--force"
+ssh -t "$TARGET" "sudo bash $REMOTE/install-bundle.sh $REMOTE $ARGS"
 
 say "Done"
 cat <<EOF

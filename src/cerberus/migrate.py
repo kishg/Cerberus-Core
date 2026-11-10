@@ -43,11 +43,16 @@ from .ui import auth
 # What the new box overrides in setup.yaml, and why (also in MANIFEST).
 OVERRIDES = {
     "ble": {"enabled": False, "pack_addresses": {}, "cabin_sensors": {}, "acr_address": ""},
+    # The OBD reader runs inside the BLE sidecar, and its address is a macOS
+    # UUID too, so it goes off with Bluetooth (config refuses obd without ble).
+    "obd": {"enabled": False, "address": ""},
     "ha_mqtt": {"enabled": False},
 }
 NOTES = [
     "Bluetooth addresses cleared: macOS UUIDs mean nothing on Linux. Run "
     "Settings > Find Bluetooth devices on the new box.",
+    "OBD adapter off: its address is a macOS UUID too. After the Bluetooth "
+    "scan, set obd.address to the adapter's MAC and obd.enabled to true.",
     "Home Assistant publishing off: HA's broker was on the old box. Turn it on "
     "in Settings with the broker's address if HA stays reachable.",
     "Sign in again on the new box's address (a browser keeps sign-ins per address).",
