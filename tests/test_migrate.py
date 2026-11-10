@@ -6,13 +6,15 @@ from __future__ import annotations
 import importlib.util
 import json
 import shutil
+import struct
+import zlib
 from pathlib import Path
 
 import pytest
 import yaml
 
 from cerberus import config as cfg_mod
-from cerberus import envfile, migrate, notes, phonefix
+from cerberus import envfile, migrate, notes, phonefix, vcsf, victron_imports
 from cerberus.db import Db
 from cerberus.ui import auth
 
@@ -32,6 +34,9 @@ def old_box(tmp_path):
     auth.Sessions(cfg).login("2468", "x")
     phonefix.write(cfg, {"lat": 40.86, "lon": -74.41, "accuracy_m": 9, "ts": 1}, "lan")
     notes.add(cfg, "solar_path_resistance", "Tightened the MPPT lugs", now=1)
+    body = json.dumps({"data": {"/Devices/0/SerialNumber": "HQ1"}}).encode()
+    victron_imports.add(cfg, "multi.vcsf",
+                        vcsf.MAGIC + struct.pack(">I", len(body)) + zlib.compress(body), now=1)
     data = box / "data"
     data.mkdir()
     db = Db(str(data / "cerberus.db"))
@@ -48,12 +53,13 @@ def test_bundle_has_what_the_new_box_needs(old_box, tmp_path):
     names = {p.name for p in out.iterdir()}
     assert {"config.yaml", "setup.yaml", ".env", ".cerberus-ui-pin.json",
             ".cerberus-phone-fix.json", ".cerberus-notes.json", "cerberus.db", "reports",
-            "MANIFEST.json"} <= names
+            ".cerberus-victron", "MANIFEST.json"} <= names
     assert auth.SESSIONS_FILE not in names                  # new address, new sign-in
     assert (out.stat().st_mode & 0o777) == 0o700 and (out / ".env").stat().st_mode & 0o077 == 0
     assert (out / "config.yaml").read_bytes() == cfg.read_bytes()
     assert Db(str(out / "cerberus.db")).get_kv("device.id") == "box-1"   # same box identity
     assert "reports/" in m["files"]
+    assert len(victron_imports.read(out / "config.yaml")) == 1  # imports travel too
 
 
 def test_new_box_settings_keep_the_ui_ones_and_clear_bluetooth_and_ha(old_box, tmp_path):

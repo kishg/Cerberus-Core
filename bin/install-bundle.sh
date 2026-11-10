@@ -29,6 +29,12 @@ done
 for f in .env .cerberus-ui-pin.json .cerberus-phone-fix.json .cerberus-notes.json; do
   if [[ -e "$SRC/$f" ]]; then install -o cerberus -g cerberus -m 600 "$SRC/$f" "$ETC/$f"; fi
 done
+if [[ -d "$SRC/.cerberus-victron" ]]; then
+  rm -rf "$ETC/.cerberus-victron"
+  cp -r "$SRC/.cerberus-victron" "$ETC/.cerberus-victron"
+  chown -R cerberus:cerberus "$ETC/.cerberus-victron"
+  chmod -R go-rwx "$ETC/.cerberus-victron"
+fi
 # A stale write-ahead log beside the new database would be replayed into it.
 rm -f "$STATE/cerberus.db-wal" "$STATE/cerberus.db-shm"
 install -o cerberus -g cerberus -m 640 "$SRC/cerberus.db" "$STATE/cerberus.db"

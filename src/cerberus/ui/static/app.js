@@ -1058,6 +1058,7 @@ async function loadSettings() {
     renderConnection(status.connection, d.signed_in);
     renderBluetooth(d.signed_in);
     renderPhone(d.signed_in);
+    renderVictron(d.signed_in);
   } catch (err) { console.error(err); }
 }
 
@@ -1413,6 +1414,125 @@ function renderPhone(signedIn) {
     card.append(label, line);
   }
   form.append(card);
+}
+
+// ------------------------------------------------------------ Victron settings files
+
+const VICTRON_KINDS = { vebus: "Inverter/charger", solarcharger: "Solar charger" };
+
+function renderVictron(signedIn) {
+  const form = document.getElementById("settings-form");
+  const card = el("section", { class: "card set-group victron" });
+  card.append(el("h2", {}, "Victron settings files"),
+    el("p", { class: "help" }, "In VictronConnect, open a device, then ⋮ > Save settings to file, and import the .vcsf here. Cerberus keeps each file as a backup, shows what changed since the previous one, and checks it against what the Cerbo reports now. VE.Configure files (.rvsc) can't be read."));
+  const msg = el("div", { class: "msg", role: "status" });
+  const list = el("div", { class: "victron-list" });
+  if (signedIn) {
+    const pick = el("input", { type: "file", accept: ".vcsf", id: "vcsf-file", class: "sr" });
+    const choose = el("label", { for: "vcsf-file", class: "btn quiet" }, "Import a .vcsf file");
+    const row = el("div", { class: "lock-row" });
+    row.append(pick, choose);
+    card.append(row);
+    pick.addEventListener("change", async () => {
+      const file = pick.files[0];
+      if (!file) return;
+      msg.className = "msg"; msg.textContent = `Importing ${file.name}…`;
+      try {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        let bin = "";
+        for (const b of bytes) bin += String.fromCharCode(b);
+        await postJSON("/victron/import", { name: file.name, data: btoa(bin) });
+        msg.textContent = `Imported ${file.name}.`;
+        await loadVictron(list, signedIn);
+      } catch (err) { msg.className = "msg err"; msg.textContent = err.message; }
+      pick.value = "";
+    });
+  } else {
+    card.append(el("p", { class: "help" }, "Sign in above to import a file."));
+  }
+  card.append(msg, list);
+  form.append(card);
+  loadVictron(list, signedIn);
+}
+
+async function loadVictron(box, signedIn) {
+  try { showVictron(box, await getJSON("/victron/imports"), signedIn); }
+  catch (err) { box.replaceChildren(el("p", { class: "empty" }, `Couldn't load imported files: ${err.message}`)); }
+}
+
+function victronTable(head, rows) {
+  const t = el("table");
+  const hr = el("tr");
+  head.forEach((h) => hr.append(el("th", {}, h)));
+  t.append(hr);
+  for (const r of rows) {
+    const tr = el("tr");
+    r.forEach((c) => tr.append(el("td", {}, c)));
+    t.append(tr);
+  }
+  return t;
+}
+
+function showVictron(box, d, signedIn) {
+  box.replaceChildren();
+  if (!d.devices.length) { box.append(el("p", { class: "empty" }, "No files imported yet.")); return; }
+  for (const dev of d.devices) {
+    const latest = dev.imports[0];
+    const sec = el("div", { class: "victron-device" });
+    const title = `${VICTRON_KINDS[dev.kind] || "Device"}${latest.serial ? ` · ${latest.serial}` : ""}${latest.firmware ? ` · firmware v${latest.firmware}` : ""}`;
+    sec.append(el("h3", {}, title),
+      el("p", { class: "help" }, `Latest file: ${latest.name}, imported ${dayTime(latest.ts)}${latest.app ? ` (saved by ${latest.app})` : ""}.`));
+
+    const prev = dev.imports[1];
+    if (latest.changes && latest.changes.length) {
+      sec.append(el("h4", {}, `Changed since ${prev.name} (${dayOnly(prev.ts)})`),
+        victronTable(["Setting", "Before", "After"], latest.changes.map((c) => [c.name, c.old_text, c.new_text])));
+    } else if (latest.changes) {
+      sec.append(el("p", { class: "help" }, `No settings changed since ${prev.name} (${dayOnly(prev.ts)}).`));
+    }
+
+    const off = dev.live_check.filter((c) => !c.match);
+    if (dev.live_check.length) {
+      if (off.length) {
+        sec.append(el("h4", {}, "Different on the device now"),
+          el("p", { class: "help" }, "The Cerbo reports these differently from the file: the device was changed after the file was saved, or the file is from another device."),
+          victronTable(["Setting", "In the file", "Now"], off.map((c) => [c.name, c.file_text, c.live_text])));
+      } else {
+        sec.append(el("p", { class: "help" }, `The ${dev.live_check.length} settings the Cerbo also reports match the file.`));
+      }
+    }
+
+    const all = el("details");
+    all.append(el("summary", {}, `All ${dev.settings.length} settings in the latest file`),
+      victronTable(["Setting", "Value"], dev.settings.map((s) => [s.name, s.text])));
+    sec.append(all);
+
+    if (dev.imports.length > 1 || signedIn) {
+      const hist = el("details");
+      hist.append(el("summary", {}, `Imported files (${dev.imports.length})`));
+      const ul = el("ul", { class: "events" });
+      for (const imp of dev.imports) {
+        const li = el("li");
+        const what = el("span", { class: "what" }, imp.readable
+          ? `${imp.name}${imp.changes ? ` · ${imp.changes.length} change${imp.changes.length === 1 ? "" : "s"}` : " · first file"}`
+          : `${imp.name} · can't be read`);
+        li.append(el("span", { class: "when" }, dayTime(imp.ts)), what);
+        if (signedIn) {
+          const del = el("button", { type: "button", class: "table-toggle" }, "Delete");
+          del.addEventListener("click", async () => {
+            del.disabled = true;
+            try { await postJSON("/victron/import/delete", { id: imp.id }); await loadVictron(box, signedIn); }
+            catch (err) { del.disabled = false; what.textContent += ` (${err.message})`; }
+          });
+          li.append(del);
+        }
+        ul.append(li);
+      }
+      hist.append(ul);
+      sec.append(hist);
+    }
+    box.append(sec);
+  }
 }
 
 function renderConnection(conn, signedIn) {

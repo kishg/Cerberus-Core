@@ -36,7 +36,7 @@ import yaml
 
 from . import config as cfg_mod
 from . import envfile
-from . import notes, phonefix
+from . import notes, phonefix, victron_imports
 from . import settings as settings_mod
 from .ui import auth
 
@@ -100,6 +100,12 @@ def bundle(config_path: Path, db_path: Path, out: Path) -> dict:
             shutil.copyfile(src, out / name)
             os.chmod(out / name, 0o600)
             files[name] = "copied"
+
+    imports = config_path.with_name(victron_imports.IMPORTS_DIR)
+    if imports.is_dir():
+        shutil.copytree(imports, out / victron_imports.IMPORTS_DIR)
+        files[victron_imports.IMPORTS_DIR + "/"] = (
+            f"{len(victron_imports.read(config_path))} imported settings files")
 
     size = backup_db(db_path, out / "cerberus.db")
     files["cerberus.db"] = f"{size / 1e6:.1f} MB, online backup"

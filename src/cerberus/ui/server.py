@@ -32,6 +32,11 @@ cloud relay later):
   POST /api/v1/notes/delete       {id}; needs a session
   POST /api/v1/notes/known        {id, known}: mark a note's finding known, or flag it
                                   again; needs a session
+  GET  /api/v1/victron/imports    imported VictronConnect settings files per device: what
+                                  changed since the previous file, and the check against
+                                  what the Cerbo publishes (cerberus.victron_imports)
+  POST /api/v1/victron/import     {name, data}: a .vcsf, base64; needs a session
+  POST /api/v1/victron/import/delete  {id}; needs a session
   POST /api/v1/auth/login         {"pin": "1234"} -> {"token"}
   POST /api/v1/auth/logout
   POST /api/v1/auth/pin           {"pin"}; sets the first PIN, from the box only
@@ -44,14 +49,17 @@ read-only database connection (``mode=ro``): the UI never writes the
 database. Its only writes are setup.yaml (cerberus.settings, validated
 first) and the PIN file (auth), both beside config.yaml, and during first-run
 setup the first config.yaml and the Cerbo password in .env (cerberus.firstrun),
-the owner's phone position (cerberus.phonefix), and notes on findings
-(cerberus.notes).
+the owner's phone position (cerberus.phonefix), notes on findings
+(cerberus.notes), and imported VictronConnect settings files
+(cerberus.victron_imports).
 Setup's probe is the only time it talks to the Cerbo: one short read-only
 MQTT connection.
 """
 
 from __future__ import annotations
 
+import base64
+import binascii
 import json
 import logging
 import sqlite3
@@ -62,6 +70,7 @@ from urllib.parse import parse_qs, quote, urlsplit
 
 from .. import config as cfg_mod
 from .. import blescan, detect, firstrun, health, learn, location, notes, phonefix
+from .. import victron_imports
 from .. import settings as settings_mod
 from . import access, api, auth
 
@@ -257,6 +266,8 @@ def make_handler(app: App):
                 return self._about()
             if ep == "access":
                 return self._json(200, access.view(getattr(app, "port", 8088)))
+            if ep == "victron/imports":
+                return self._victron_view()
             try:
                 conn = connect_ro(app.db_path)
             except sqlite3.Error as err:
@@ -285,6 +296,21 @@ def make_handler(app: App):
                 return self._json(503, {"error": f"database error: {err}"})
             finally:
                 conn.close()
+
+        def _victron_view(self):
+            if not app.config_path:
+                return self._json(404, {"error": "settings unavailable"})
+            # The check against the Cerbo needs the database; the report
+            # works without it.
+            try:
+                conn = connect_ro(app.db_path)
+            except sqlite3.Error:
+                conn = None
+            try:
+                return self._json(200, victron_imports.view(app.config_path, conn))
+            finally:
+                if conn is not None:
+                    conn.close()
 
         def _notes(self) -> list[dict]:
             return notes.read(app.config_path) if app.config_path else []
@@ -367,6 +393,10 @@ def make_handler(app: App):
                     if not app.sessions.valid(self._token()):
                         return self._json(401, {"error": "sign in (Settings) to add or delete notes"})
                     return self._notes_post(ep, body, addr)
+                if ep in ("victron/import", "victron/import/delete"):
+                    if not app.sessions.valid(self._token()):
+                        return self._json(401, {"error": "sign in (Settings) to import settings files"})
+                    return self._victron_post(ep, body, addr)
                 if ep == "location/phone":
                     if not app.sessions.valid(self._token()):
                         return self._json(401, {"error": "enter the PIN to share this phone's location"})
@@ -382,6 +412,8 @@ def make_handler(app: App):
             except cfg_mod.ConfigError as err:
                 return self._json(400, {"error": str(err)})
             except notes.NoteError as err:
+                return self._json(400, {"error": str(err)})
+            except victron_imports.VictronImportError as err:
                 return self._json(400, {"error": str(err)})
             return self._json(404, {"error": "not found"})
 
@@ -402,6 +434,21 @@ def make_handler(app: App):
                 return self._json(404, {"error": "no such note"})
             log.info("note %s deleted from %s", body.get("id"), addr)
             return self._json(200, {"ok": True})
+
+        def _victron_post(self, ep: str, body: dict, addr: str):
+            if ep == "victron/import/delete":
+                if not victron_imports.delete(app.config_path, body.get("id")):
+                    return self._json(404, {"error": "no such import"})
+                log.info("victron import %s deleted from %s", body.get("id"), addr)
+                return self._json(200, {"ok": True})
+            try:
+                raw = base64.b64decode(str(body.get("data") or ""), validate=True)
+            except (binascii.Error, ValueError):
+                return self._json(400, {"error": "the file didn't upload correctly; try again"})
+            entry = victron_imports.add(app.config_path, body.get("name"), raw)
+            log.info("victron import %s (%s, device %s) from %s",
+                     entry["id"], entry["name"], entry["device"], addr)
+            return self._json(200, {"import": entry})
 
         def _phone_fix(self, body: dict, addr: str):
             now = int(time.time())
