@@ -281,3 +281,12 @@ def test_battery_temperatures_read_in_the_owners_unit(db, unit, text):
     _event(db, NOW - 3600, "temp_low", pack=2, temperature=5.0)
     f = _keys(db) if unit == "F" else {x.key: x for x in F.derive(db.conn, F.Settings(tz=NY, temp_unit="C"), NOW)}
     assert f"Pack 2 is at {text}." in f["battery_cold"].explain
+
+
+def test_cold_charging_names_the_source(db):
+    _event(db, NOW - 600, "cold_charge", pack=2, temperature=2.0, current=88.4, source="alternator")
+    f = _keys(db)["cold_charging"]
+    assert f.severity == F.URGENT and f.status == "open"
+    assert f.explain.startswith("Pack 2 is at 36 °F and the bank is taking 88 A from the alternator.")
+    _event(db, NOW - 60, "cold_charge_cleared", pack=2, temperature=7.0, current=0.0)
+    assert _keys(db)["cold_charging"].status != "open"

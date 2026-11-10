@@ -1,9 +1,10 @@
 """Cross-pack analysis: the brain Cerberus contributes on top of the Cerbo.
 
-Seven detectors, all stateful, emitting ``Event``s. Five consume successive
-``BankState`` snapshots and run under ``DetectorRunner``; two take their own
+Eight detectors, all stateful, emitting ``Event``s. Five consume successive
+``BankState`` snapshots and run under ``DetectorRunner``; three take their own
 input and are driven separately from ``__main__`` — ``CellImbalanceDetector``
-off BLE per-cell data, ``SolarOutputOpenDetector`` off ``SolarState``. All take
+off BLE per-cell data, ``SolarOutputOpenDetector`` off ``SolarState``, and
+``ColdChargeDetector`` off the bank plus the solar and shore figures. All take
 an explicit ``now`` timestamp so tests can replay history without real clocks.
 
 Edge-triggering + hysteresis is the rule, not the exception: noise on a sensor
@@ -338,6 +339,79 @@ class TemperatureDetector:
                                {"pack": pid, "temperature": t}, ts=now)
                 )
         return events
+
+
+# ---------------------------------------------------------------------------
+# 4b. Charging a cold pack
+# ---------------------------------------------------------------------------
+
+class ColdChargeDetector:
+    """Current going into a pack that is below ``low_c``.
+
+    ``TemperatureDetector`` says a pack is cold; this says it is being charged
+    while cold, which is what damages LiFePO4 (lithium plating). Added
+    2026-11-10 for the start of a winter trip: the packs are switched on cold
+    because the furnace runs off them, and the alternator charges them through
+    the ACR before the cabinet warms. The ACR has no temperature cut-off, and
+    the Victron chargers only get one through DVCC's shared temperature sense.
+
+    The source is named so the owner knows what to stop: shore when the
+    MultiPlus is charging from AC, otherwise whichever of solar and the rest
+    (bank current minus solar current, i.e. the alternator) is larger. With no
+    solar reading yet the source is "unknown" rather than a guess.
+
+    Both edges wait ``sustain_seconds``, so a single odd reading neither raises
+    nor clears it. Clearing needs the packs ``hysteresis_c`` warmer than
+    ``low_c`` or the charge current back under ``min_charge_a``. Packs reading
+    under ``implausible_voltage`` are a missing reading and are skipped: a
+    missing temperature parses as 0.0 C.
+    """
+
+    def __init__(self, low_c: float = 5.0, min_charge_a: float = 5.0,
+                 sustain_seconds: int = 60, hysteresis_c: float = 2.0,
+                 implausible_voltage: float = 5.0):
+        self.low = float(low_c)
+        self.clear_c = self.low + float(hysteresis_c)
+        self.min_a = float(min_charge_a)
+        self.sustain = int(sustain_seconds)
+        self.implausible_v = float(implausible_voltage)
+        self.alerted = False
+        self._since: int | None = None      # when the pending edge began
+
+    def evaluate(self, bank: BankState, now: int, solar_a: float | None = None,
+                 shore: bool = False) -> list[Event]:
+        packs = [p for p in bank.packs.values() if p.voltage >= self.implausible_v]
+        if not packs:
+            return []
+        coldest = min(packs, key=lambda p: p.temperature)
+        amps = bank.total_current
+        if self.alerted:
+            edge = coldest.temperature >= self.clear_c or amps < self.min_a
+        else:
+            edge = coldest.temperature < self.low and amps >= self.min_a
+        if not edge:
+            self._since = None
+            return []
+        if self._since is None:
+            self._since = now
+        if now - self._since < self.sustain:
+            return []
+        self._since = None
+        self.alerted = not self.alerted
+        detail = {"pack": coldest.pack_id, "temperature": coldest.temperature,
+                  "current": round(amps, 1)}
+        if not self.alerted:
+            return [make_event("cold_charge_cleared", Severity.INFO, detail, ts=now)]
+        detail["source"] = self._source(amps, solar_a, shore)
+        return [make_event("cold_charge", Severity.WARN, detail, ts=now)]
+
+    @staticmethod
+    def _source(amps: float, solar_a: float | None, shore: bool) -> str:
+        if shore:
+            return "shore"
+        if solar_a is None:
+            return "unknown"
+        return "solar" if solar_a >= amps - solar_a else "alternator"
 
 
 # ---------------------------------------------------------------------------

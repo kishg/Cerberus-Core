@@ -118,6 +118,13 @@ thresholds:
   # temperature ever recorded is 20 C). If the cabinet runs colder than the
   # cabin, expect nuisance alerts and raise the Espar setpoint or lower this.
   temp_low_c: 5
+  # Charging while a pack is below this (default: temp_low_c) raises
+  # cold_charge, URGENT, naming the source: alternator, solar or shore. Added
+  # 2026-11-10: the ACR has no temperature cut-off, so a winter trip that
+  # starts with cold packs charges them from the alternator at full rate.
+  # cold_charge_c: 5
+  # cold_charge_min_a: 5              # bank charge current that counts
+  # cold_charge_sustain_seconds: 60
   low_soc_pct: 15
   # Any pack below this escalates low_soc to low_soc_crit. 12.3 V sits just
   # above the Lithionics 12.1 V cutoff; set it from your BMS's own cutoff.

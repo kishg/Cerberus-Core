@@ -724,6 +724,10 @@ class _Edge:
     ignore: object = None
 
 
+_COLD_SOURCE = {"alternator": " from the alternator", "solar": " from solar",
+                "shore": " from shore power"}
+
+
 def _vlabel(path: str) -> str:
     from .device_settings import label
     return label(path)
@@ -776,6 +780,15 @@ EDGES = (
                            f"batteries must not charge near freezing; most block charging "
                            f"themselves."),
           "Warm the battery compartment before relying on charging."),
+    _Edge("cold_charging", ("cold_charge",), URGENT, "A cold battery is being charged",
+          lambda d, e, s: (f"Pack {d.get('pack')} is at {fmt_temp(d.get('temperature', 0), s)} and "
+                           f"the bank is taking {d.get('current', 0):.0f} A"
+                           + _COLD_SOURCE.get(d.get("source"), "") + ". Charging lithium "
+                           f"batteries this cold can damage them permanently."),
+          "If the engine is running, let the furnace warm the battery cabinet before "
+          "driving on: the alternator relay has no temperature cut-off. Solar and shore "
+          "charging stop on their own only if the Victron chargers get the pack "
+          "temperature (DVCC)."),
     _Edge("low_charge", ("low_soc",), ATTENTION, "The batteries are low",
           lambda d, e, s: f"The lowest pack is at {d.get('min_soc', 0):.0f}%.",
           "Cut loads or charge: drive, plug in, or wait for sun."),
