@@ -2,7 +2,7 @@
 # Install a bundle from `python -m cerberus.migrate bundle` on the new box.
 # Run as root there; bin/migrate-to-box.sh copies the bundle over and runs it:
 #
-#   sudo bin/install-bundle.sh /tmp/cerberus-migrate.123 [--no-systemd]
+#   sudo bin/install-bundle.sh /tmp/cerberus-migrate.123 [--no-systemd] [--force]
 #
 # Stops the services, puts settings in /etc/cerberus and the database and
 # drive reports in /var/lib/cerberus (owned by the cerberus user, secrets
@@ -11,12 +11,23 @@ set -euo pipefail
 
 SRC="${1:?usage: $0 BUNDLE_DIR [--no-systemd]}"
 SYSTEMD=1
-[[ "${2:-}" == "--no-systemd" ]] && SYSTEMD=0
+FORCE=0
+for a in "${@:2}"; do
+  case "$a" in
+    --no-systemd) SYSTEMD=0 ;;
+    --force) FORCE=1 ;;
+    *) echo "install-bundle: unknown option $a" >&2; exit 64 ;;
+  esac
+done
 ETC=/etc/cerberus
 STATE=/var/lib/cerberus
 [[ $EUID -eq 0 ]] || { echo "install-bundle: run as root" >&2; exit 77; }
 [[ -f "$SRC/MANIFEST.json" ]] || { echo "install-bundle: $SRC is not a bundle" >&2; exit 66; }
 id cerberus >/dev/null 2>&1 || { echo "install-bundle: run bin/install-linux.sh first" >&2; exit 69; }
+if [[ $FORCE -eq 0 && -e "$ETC/config.yaml" ]]; then
+  echo "install-bundle: this box is already set up; --force replaces its settings and history" >&2
+  exit 73
+fi
 
 if [[ $SYSTEMD -eq 1 ]]; then
   systemctl stop cerberus-ble cerberus-ui cerberus 2>/dev/null || true

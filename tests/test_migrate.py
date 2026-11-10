@@ -74,6 +74,22 @@ def test_new_box_settings_keep_the_ui_ones_and_clear_bluetooth_and_ha(old_box, t
     assert loaded.mqtt.portal_id == "0123456789ab"
 
 
+def test_an_obd_adapter_goes_off_with_bluetooth(old_box, tmp_path):
+    # This van: obd on with a macOS UUID. Bluetooth off but obd on would fail
+    # validation (2026-11-10, the first real migration).
+    cfg, db = old_box
+    raw = yaml.safe_load(cfg.read_text())
+    raw["ble"] = {**raw.get("ble", {}), "enabled": True}
+    raw["obd"] = {**raw.get("obd", {}), "enabled": True,
+                  "address": "6B1E2C4D-0000-0000-0000-000000000000"}
+    cfg.write_text(yaml.safe_dump(raw))
+    out = tmp_path / "bundle"
+    m = migrate.bundle(cfg, db, out)
+    loaded = cfg_mod.from_raw(cfg_mod.read_raw(out / "config.yaml"), password="x")
+    assert not loaded.obd.enabled and loaded.obd.address == "" and not loaded.ble.enabled
+    assert any("OBD adapter off" in n for n in m["notes"])
+
+
 def test_refuses_a_non_empty_output(old_box, tmp_path):
     cfg, db = old_box
     out = tmp_path / "bundle"
@@ -122,3 +138,15 @@ def test_install_bundle_installs_every_bundled_file(old_box, tmp_path):
     script = (ROOT / "bin/install-bundle.sh").read_text()
     missing = [f for f in m["files"] if f.rstrip("/") not in script]
     assert missing == []
+
+
+def test_no_sudo_over_ssh_without_a_terminal():
+    # sudo can't ask for a password without one, and fails silently: the
+    # "already set up" guard never refused and the cleanup left the bundle,
+    # Cerbo password included, in /tmp on the box (2026-11-10).
+    import re
+    script = (ROOT / "bin/migrate-to-box.sh").read_text()
+    lines = [l for l in script.splitlines() if not l.lstrip().startswith("#")]
+    bad = [l for l in lines if re.search(r"\bssh\b(?!.*\s-t\s).*\bsudo\b", l)]
+    assert bad == []
+    assert "--force) FORCE=1" in (ROOT / "bin/install-bundle.sh").read_text()
