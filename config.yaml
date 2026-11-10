@@ -222,6 +222,14 @@ ble:
   acr_address: "00000000-0000-4000-8000-0000000000A1"
   # Rows are written whenever an unmapped field changes, else this often.
   acr_sample_seconds: 30
+  # The ACR's settings are read with `$LIST` (read-only) on each connect and
+  # then this often, into acr_settings. 0 = never.
+  acr_settings_seconds: 86400
+  # Optional: the settings you set, by their $LIST name in the ACR's units
+  # (hundredths of a volt). A read that differs raises a finding.
+  # acr_expect:
+  #   House Full Voltage: 1420
+  #   House High Voltage: 1440
   sample_downsample_seconds: 30
   reconnect_backoff_seconds: 5
   # Bounds BleakClient.connect(). On macOS a connect to an address
