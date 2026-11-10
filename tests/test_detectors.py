@@ -850,3 +850,57 @@ def test_float_guard_gates_the_rising_edge_only():
 def test_float_state_is_configurable():
     d = _float_guard_detector(float_state=99)
     assert _drive(d, 5, 85.0), "state 5 should no longer be guarded when float_state=99"
+
+
+# ---------------------------------------------------------------------------
+# ColdChargeDetector
+# ---------------------------------------------------------------------------
+
+def _cold_bank(temp: float, amps_each: float, volts: float = 13.3) -> BankState:
+    return _bank(_pack(1, 60, volts, amps_each, temp=12.0),
+                 _pack(2, 60, volts, amps_each, temp=temp),
+                 _pack(3, 60, volts, amps_each, temp=12.0))
+
+
+def test_cold_charge_names_the_alternator_after_the_sustain():
+    d = det.ColdChargeDetector(low_c=5, sustain_seconds=60)
+    bank = _cold_bank(2.0, 30.0)                    # 90 A into the bank, 4 A of it solar
+    assert d.evaluate(bank, 0, solar_a=4.0) == []
+    (ev,) = d.evaluate(bank, 60, solar_a=4.0)
+    assert ev.type == "cold_charge" and ev.detail == {
+        "pack": 2, "temperature": 2.0, "current": 90.0, "source": "alternator"}
+    assert d.evaluate(bank, 120, solar_a=4.0) == []           # once per episode
+
+
+@pytest.mark.parametrize("solar_a, shore, source", [
+    (9.0, False, "solar"), (0.0, True, "shore"), (None, False, "unknown")])
+def test_cold_charge_source(solar_a, shore, source):
+    d = det.ColdChargeDetector(sustain_seconds=0)
+    (ev,) = d.evaluate(_cold_bank(1.0, 3.0), 0, solar_a=solar_a, shore=shore)
+    assert ev.detail["source"] == source
+
+
+@pytest.mark.parametrize("bank", [
+    _cold_bank(2.0, -5.0),        # cold but discharging: temp_low's job, not this
+    _cold_bank(2.0, 1.0),         # 3 A: under the charge threshold
+    _cold_bank(8.0, 30.0),        # charging, but warm
+    _cold_bank(0.0, 30.0, volts=0.0),  # missing readings parse as 0 V / 0 C
+])
+def test_cold_charge_stays_quiet(bank):
+    d = det.ColdChargeDetector(sustain_seconds=0)
+    assert d.evaluate(bank, 0, solar_a=0.0) == []
+
+
+def test_cold_charge_clears_when_charging_stops_or_the_packs_warm():
+    d = det.ColdChargeDetector(sustain_seconds=60)
+    d.evaluate(_cold_bank(2.0, 30.0), 0, solar_a=0.0)
+    assert d.evaluate(_cold_bank(2.0, 30.0), 60, solar_a=0.0)[0].type == "cold_charge"
+    # A blip of no charge shorter than the sustain doesn't clear it.
+    assert d.evaluate(_cold_bank(2.0, 0.0), 70, solar_a=0.0) == []
+    assert d.evaluate(_cold_bank(2.0, 30.0), 80, solar_a=0.0) == []
+    # Warming into the hysteresis band (5-7 C) doesn't either; 7 C does.
+    assert d.evaluate(_cold_bank(6.0, 30.0), 200, solar_a=0.0) == []
+    assert d.evaluate(_cold_bank(6.0, 30.0), 300, solar_a=0.0) == []
+    d.evaluate(_cold_bank(7.0, 30.0), 400, solar_a=0.0)
+    (ev,) = d.evaluate(_cold_bank(7.0, 30.0), 460, solar_a=0.0)
+    assert ev.type == "cold_charge_cleared" and ev.severity == Severity.INFO

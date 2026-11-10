@@ -98,6 +98,11 @@ class Cerberus:
         self.detectors = detectors_mod.from_config(
             cfg.thresholds, cfg.full_charge, self.db.kv_mapping()
         )
+        self.cold_charge = detectors_mod.ColdChargeDetector(
+            low_c=float(cfg.thresholds.get("cold_charge_c", cfg.thresholds.get("temp_low_c", 5))),
+            min_charge_a=float(cfg.thresholds.get("cold_charge_min_a", 5)),
+            sustain_seconds=int(cfg.thresholds.get("cold_charge_sustain_seconds", 60)),
+        )
         self.cell_detector = detectors_mod.CellImbalanceDetector(
             in_pack_threshold_mv=float(cfg.thresholds.get("cell_imbalance_in_pack_mv", 50)),
             cross_pack_threshold_mv=float(cfg.thresholds.get("cell_imbalance_cross_pack_mv", 100)),
@@ -265,6 +270,11 @@ class Cerberus:
         except Exception:
             log.exception("detector evaluate failed")
             events = []
+        try:
+            events += self.cold_charge.evaluate(
+                bank, now, self.solar.total_charge_current, self.ac.is_charging_from_ac)
+        except Exception:
+            log.exception("cold_charge evaluate failed")
 
         for ev in events:
             self.db.insert_event(ev)
