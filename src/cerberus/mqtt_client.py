@@ -42,6 +42,9 @@ class CerboMqtt:
     - Never publishes ``W/`` topics into the Victron tree.
     """
 
+    # A class default too, so a dispatcher built without __init__ has it.
+    on_setting = None
+
     def __init__(
         self,
         cfg: MqttConfig,
@@ -56,6 +59,7 @@ class CerboMqtt:
         on_wifi: Callable[[str, object], None] | None = None,
         on_dc: Callable[[str, object], None] | None = None,
         on_location: Callable[[str, object], None] | None = None,
+        on_setting: Callable[[str, object], None] | None = None,
         tls_context: ssl.SSLContext | None = None,
         own_topics: bool = True,
     ) -> None:
@@ -71,6 +75,7 @@ class CerboMqtt:
         self.on_wifi = on_wifi
         self.on_dc = on_dc
         self.on_location = on_location
+        self.on_setting = on_setting
         self.availability_topic = f"{cfg.publish_namespace}/availability"
         # False for the VRM cloud relay: its ACL only admits the installation's
         # own N/R/W tree, so the availability LWT and "online" marker (which
@@ -448,6 +453,16 @@ class CerboMqtt:
             (f"N/{portal}/gps/+/Position/#", 0),
             (f"N/{portal}/gps/+/Fix", 0),
             (f"N/{portal}/settings/0/Settings/System/TimeZone", 0),
+            # Settings history (cerberus.device_settings, 2026-11-10): the
+            # GX's own settings tree and the device settings and limits it
+            # publishes. solarcharger/+/# and vebus/+/Ac/# are above already.
+            (f"N/{portal}/settings/0/Settings/#", 0),
+            (f"N/{portal}/vebus/+/Devices/+/Settings/#", 0),
+            (f"N/{portal}/vebus/+/Devices/+/FirmwareVersion", 0),
+            (f"N/{portal}/vebus/+/FirmwareVersion", 0),
+            (f"N/{portal}/battery/+/Info/#", 0),
+            (f"N/{portal}/battery/+/FirmwareVersion", 0),
+            (f"N/{portal}/platform/0/Firmware/Installed/Version", 0),
         ]
         log.info("connected; subscribing %d topic patterns", len(topics))
         client.subscribe(topics)
@@ -519,6 +534,16 @@ class CerboMqtt:
                 self.on_dc(topic, value)
             except Exception:
                 log.exception("on_dc handler raised")
+
+        if self.on_setting is not None:
+            try:
+                self.on_setting(topic, value)
+            except Exception:
+                log.exception("on_setting handler raised")
+        # The settings tree is for on_setting alone (bar the time zone): paths
+        # like .../BatteryLife/State would otherwise fall into the AC branch.
+        if "/settings/0/" in topic and not topic.endswith("/Settings/System/TimeZone"):
+            return
 
         if topic.endswith(f"/{self.cfg.primary_topic}"):
             if isinstance(value, list):

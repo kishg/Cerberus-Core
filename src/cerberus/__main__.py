@@ -32,6 +32,7 @@ from . import solar_path as solar_path_mod
 from .ac import AcState
 from .alarms import AlarmState, parse_alarm_topic
 from .db import Db
+from .device_settings import SettingsRecorder
 from .events import Severity, make as make_event
 from .location import VanLocation
 from .log import setup_logging
@@ -171,6 +172,8 @@ class Cerberus:
         if cfg.govee_cloud.enabled:
             cabin_names.add(cfg.govee_cloud.sensor)
         self.cabin_sensors = tuple(sorted(cabin_names))
+        self.settings = (SettingsRecorder(self.db, cfg.victron.expect)
+                         if cfg.victron.record_settings else None)
         self.mqtt = CerboMqtt(
             cfg.mqtt,
             on_batteries=self._on_batteries,
@@ -183,6 +186,7 @@ class Cerberus:
             on_wifi=self._on_wifi,
             on_location=self._on_location,
             on_dc=self._on_dc,
+            on_setting=self.settings.on_message if self.settings else None,
             # Cerberus's own topics go to HA's broker below, not the Cerbo.
             own_topics=False,
         )
@@ -859,6 +863,7 @@ class Cerberus:
                 on_wifi=self._on_wifi,
                 on_location=self._on_location,
                 on_dc=self._on_dc,
+            on_setting=self.settings.on_message if self.settings else None,
                 tls_context=vrm_cloud.tls_context(),
                 own_topics=False,
             )

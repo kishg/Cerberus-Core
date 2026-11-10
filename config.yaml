@@ -465,3 +465,15 @@ ha_mqtt:
   # data (tyres, starter battery, fuel and AdBlue while parked). Empty: none.
   # import_topics:
   #   - cerberus/import/vehicle
+
+# Victron settings history (cerberus.device_settings): every setting the Cerbo
+# publishes (its own settings, DVCC, alarm levels, the MPPT's current limit,
+# the inverter's AC input limit, BMS charge limits, firmware) is stored when
+# first seen and on every change. Read-only. The MPPT's absorption/float and
+# the MultiPlus's charger and low-battery voltages are never published.
+victron:
+  record_settings: true
+  # Optional: the values you set, by path after N/<portal>/. A differing
+  # value is a finding.
+  # expect:
+  #   settings/0/Settings/SystemSetup/SharedVoltageSense: 1

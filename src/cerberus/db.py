@@ -205,6 +205,17 @@ CREATE TABLE IF NOT EXISTS acr_settings (
   settings TEXT NOT NULL,
   raw TEXT NOT NULL        -- the reply lines as received, newline-joined
 );
+CREATE TABLE IF NOT EXISTS device_settings (
+  ts INTEGER NOT NULL,
+  -- A Victron setting as the GX publishes it, path after "N/<portal>/", e.g.
+  -- "settings/0/Settings/SystemSetup/SharedVoltageSense" or
+  -- "solarcharger/277/Settings/ChargeCurrentLimit". One row when a path is
+  -- first seen and one per change after (cerberus.device_settings), so the
+  -- value at any time is the latest row at or before it.
+  path TEXT NOT NULL,
+  value TEXT NOT NULL,     -- JSON, as published
+  PRIMARY KEY (path, ts)
+);
 CREATE TABLE IF NOT EXISTS engine_samples (
   ts INTEGER PRIMARY KEY,
   -- Engine RPM, the reason this table exists. Alternator current cannot
@@ -814,6 +825,29 @@ class Db:
         except sqlite3.Error as e:
             log.error("acr_settings insert failed: %s", e)
             return 0
+
+    def insert_device_setting(self, ts: int, path: str, value) -> int:
+        try:
+            self.conn.execute(
+                "INSERT OR REPLACE INTO device_settings (ts, path, value) VALUES (?, ?, ?)",
+                (ts, path, json.dumps(value)),
+            )
+            return 1
+        except sqlite3.Error as e:
+            log.error("device_settings insert failed: %s", e)
+            return 0
+
+    def latest_device_settings(self) -> dict[str, object]:
+        """{path: value} as of the newest row per path."""
+        out: dict[str, object] = {}
+        # SQLite returns the bare column from the row holding max(ts).
+        for path, value, _ts in self.conn.execute(
+                "SELECT path, value, max(ts) FROM device_settings GROUP BY path"):
+            try:
+                out[path] = json.loads(value)
+            except ValueError:
+                continue
+        return out
 
     def latest_acr_settings(self) -> tuple[int, str | None, dict] | None:
         """(ts, firmware, settings) of the last `$LIST` read, or None."""
