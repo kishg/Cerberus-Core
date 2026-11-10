@@ -724,6 +724,11 @@ class _Edge:
     ignore: object = None
 
 
+def _vlabel(path: str) -> str:
+    from .device_settings import label
+    return label(path)
+
+
 def _acr_value(name: str, v) -> str:
     """An ACR $LIST value for people: voltages are hundredths of a volt."""
     if v is None:
@@ -783,6 +788,14 @@ EDGES = (
                              "the batteries on a drive."),
           "Set them again in the Lithionics app's terminal console. If they changed after the "
           "relay lost power, the settings don't survive a power cut: note it."),
+    _Edge("victron_settings", ("victron_settings_unexpected",), ATTENTION,
+          "A Victron setting isn't what was set",
+          lambda d, e, s: ("Read from the Cerbo: "
+                           + "; ".join(f"{_vlabel(p)} is {got!r}, expected {want!r}"
+                                       for p, (want, got) in (d.get("off") or {}).items())
+                           + "."),
+          "If you didn't change it, set it back in the Cerbo's settings or VictronConnect. "
+          "A firmware update or a device reset can put settings back to their defaults."),
     _Edge("critical_voltage", ("low_soc_crit",), URGENT, "Battery voltage is critically low",
           lambda d, e, s: (f"A pack reached {d.get('min_voltage', 0):.2f} V. Close to this, the "
                            f"battery disconnects itself to protect the cells."),

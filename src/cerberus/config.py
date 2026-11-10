@@ -216,6 +216,15 @@ class DrivesConfig:
 
 
 @dataclass(frozen=True)
+class VictronConfig:
+    # Record the Victron settings the GX publishes (cerberus.device_settings).
+    record_settings: bool = True
+    # {path after "N/<portal>/": value} the owner set; a differing value is a
+    # finding. Empty = no check.
+    expect: dict = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
 class HaMqttConfig:
     """Home Assistant's own broker, where Cerberus publishes state, events and
     discovery (cerberus.ha_mqtt). Not the Cerbo.
@@ -284,6 +293,7 @@ class Config:
     timezone: str | None = None
     # How the screens and findings show temperatures (system.temperature_unit).
     temperature_unit: str = "F"
+    victron: VictronConfig = VictronConfig()
 
 
 TEMPERATURE_UNITS = ("F", "C")
@@ -608,6 +618,23 @@ def read_raw(path: str | Path) -> dict:
     return raw
 
 
+def _parse_victron(raw: dict) -> VictronConfig:
+    """victron: record_settings (default on) and expect {path: value}."""
+    v = raw.get("victron") or {}
+    if not isinstance(v, dict):
+        raise ConfigError("victron must be a mapping")
+    expect = v.get("expect") or {}
+    if not isinstance(expect, dict):
+        raise ConfigError("victron.expect must map setting paths to values")
+    for path, want in expect.items():
+        if not isinstance(want, (int, float, str)) or isinstance(want, bool):
+            raise ConfigError(f"victron.expect.{path}: a number or a string")
+    return VictronConfig(
+        record_settings=_parse_bool(v.get("record_settings", True), "victron.record_settings"),
+        expect={str(k).strip().strip("/"): w for k, w in expect.items()},
+    )
+
+
 def _acr_expect(raw) -> dict:
     """ble.acr_expect: {"$LIST name": number}. Names are matched exactly."""
     if raw in (None, ""):
@@ -925,4 +952,5 @@ user_agent=str(w_raw.get("user_agent", DEFAULT_WEATHER_UA)).strip(),
         solar=solar,
         timezone=_parse_timezone(raw),
         temperature_unit=_parse_temperature_unit(raw),
+        victron=_parse_victron(raw),
     )
