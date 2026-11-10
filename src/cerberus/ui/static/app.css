@@ -237,3 +237,13 @@ th { color: var(--muted); font-weight: 500; }
 footer { margin-top: 28px; font-size: 12px; color: var(--muted); }
 footer a { color: var(--text-2); }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+/* Victron settings files */
+.victron-device { border-top: 1px solid var(--grid); margin-top: 12px; padding-top: 10px; }
+.victron-device h3 { font-size: 15px; margin: 0 0 4px; }
+.victron-device h4 { font-size: 13px; font-weight: 600; margin: 12px 0 4px; }
+.victron-device .help { font-size: 12px; color: var(--muted); margin: 0 0 4px; }
+.victron-device details { margin-top: 10px; font-size: 13px; }
+.victron-device summary { cursor: pointer; color: var(--text-2); }
+.victron-device td { overflow-wrap: anywhere; }
+.victron label.btn { display: inline-block; cursor: pointer; }
+
