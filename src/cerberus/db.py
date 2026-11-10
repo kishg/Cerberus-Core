@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import sqlite3
 import threading
@@ -191,6 +192,18 @@ CREATE TABLE IF NOT EXISTS acr_samples (
   -- The line as received. Kept because the mapping is incomplete and a drive
   -- may show a frame shape the parser does not expect.
   raw TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS acr_settings (
+  ts INTEGER PRIMARY KEY,
+  -- The ACR's own settings, read back with `$LIST` over the connection the
+  -- sidecar already holds (daily and on each connect). Every read is kept, so
+  -- the table also answers "were they still set on day X", e.g. after the
+  -- ACR loses power. Read-only: no write command is ever sent.
+  firmware TEXT,           -- header line, e.g. "Lithionics ACR v6.0.05"
+  -- {"House Full Voltage": 1420, ...}: values in the ACR's own units
+  -- (hundredths of a volt for voltages), as numbers where they parse.
+  settings TEXT NOT NULL,
+  raw TEXT NOT NULL        -- the reply lines as received, newline-joined
 );
 CREATE TABLE IF NOT EXISTS engine_samples (
   ts INTEGER PRIMARY KEY,
@@ -788,6 +801,32 @@ class Db:
         except sqlite3.Error as e:
             log.error("acr_samples insert failed: %s", e)
             return 0
+
+    def insert_acr_settings(self, ts: int, firmware: str | None,
+                            settings: dict, raw: str) -> int:
+        try:
+            self.conn.execute(
+                "INSERT OR REPLACE INTO acr_settings (ts, firmware, settings, raw) "
+                "VALUES (?, ?, ?, ?)",
+                (ts, firmware, json.dumps(settings, sort_keys=True), raw),
+            )
+            return 1
+        except sqlite3.Error as e:
+            log.error("acr_settings insert failed: %s", e)
+            return 0
+
+    def latest_acr_settings(self) -> tuple[int, str | None, dict] | None:
+        """(ts, firmware, settings) of the last `$LIST` read, or None."""
+        row = self.conn.execute(
+            "SELECT ts, firmware, settings FROM acr_settings ORDER BY ts DESC LIMIT 1"
+        ).fetchone()
+        if row is None:
+            return None
+        try:
+            settings = json.loads(row[2])
+        except ValueError:
+            settings = {}
+        return row[0], row[1], settings if isinstance(settings, dict) else {}
 
     def latest_cabin_per_sensor(self, max_age_seconds: int | None = None
                                 ) -> dict[str, CabinSample]:

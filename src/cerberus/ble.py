@@ -6,7 +6,8 @@ reassembles the ASCII CRLF stream, parses the two frame types, and
 writes throttled samples to `cell_samples` and `pack_ble_samples`.
 
 If `ble.acr_address` is set it also holds the Lithionics ACR, which speaks the
-same protocol, and writes its stream frame to `acr_samples`.
+same protocol, and writes its stream frame to `acr_samples`. Its settings are
+read back with `$LIST` (read-only) into `acr_settings`.
 
 Run with:
     python -m cerberus.ble --config config.yaml --log-level INFO
@@ -20,7 +21,7 @@ import signal
 import threading
 import time
 from pathlib import Path
-from typing import Callable
+from typing import Awaitable, Callable
 
 import yaml
 from bleak import BleakClient, BleakScanner
@@ -28,6 +29,7 @@ from bleak import BleakClient, BleakScanner
 from . import config as cfg_mod
 from . import obd as obd_mod
 from .db import Db
+from .events import Event, Severity
 from .thermo import decode as decode_ambient
 from .log import setup_logging
 
@@ -240,6 +242,41 @@ def parse_acr_frame(line: str) -> dict | None:
     return out
 
 
+ACR_LIST_CMD = b"$LIST\r\n"
+# Measured by hand 2026-10-29: the whole reply (8 lines on 6.0.05) arrives
+# well inside this. Stream frames keep coming during the wait.
+ACR_LIST_SETTLE_S = 3.0
+# Let the connection settle before the first command.
+ACR_LIST_FIRST_DELAY_S = 5.0
+
+
+def parse_acr_list(lines: list[str]) -> tuple[str | None, dict]:
+    """The `$LIST` reply: a header line and "Name=value" lines, e.g.
+
+        Lithionics ACR v6.0.05
+        Version=6005
+        House Full Voltage=1420
+
+    Returns (header, {name: int or str}). Anything else ("OK", "ERROR",
+    a stray frame) is ignored.
+    """
+    firmware, settings = None, {}
+    for line in lines:
+        s = line.strip()
+        if s.startswith("Lithionics ACR"):
+            firmware = s
+            continue
+        name, sep, value = s.partition("=")
+        name, value = name.strip(), value.strip()
+        if not sep or not name or name.startswith(("*", "$")):
+            continue
+        try:
+            settings[name] = int(value)
+        except ValueError:
+            settings[name] = value
+    return firmware, settings
+
+
 class BleCollector:
     """Connects to N BLE peripherals, reassembles their CRLF stream, and
     coalesces Frame A + Frame B into one row per pack per
@@ -260,6 +297,8 @@ class BleCollector:
         self._acr_last: dict | None = None
         self._acr_last_write_ts = 0
         self._acr_unknown_warned = False
+        # Reply lines collected while a `$LIST` is outstanding, else None.
+        self._acr_list: list[str] | None = None
         # The ACR's latest mode and when it was heard, kept for every frame
         # (not just the stored ones): the OBD loop wakes on a change into
         # ACR_ENGINE_MODES instead of trusting chassis voltage.
@@ -283,7 +322,8 @@ class BleCollector:
         ]
         if self.cfg.acr_address:
             tasks.append(asyncio.create_task(self._uart_loop(
-                "acr", self.cfg.acr_address, self._dispatch_acr)))
+                "acr", self.cfg.acr_address, self._dispatch_acr,
+                self._acr_settings_loop)))
         if self.cfg.cabin_sensors:
             tasks.append(asyncio.create_task(self._cabin_loop()))
         if obd_on:
@@ -586,10 +626,13 @@ class BleCollector:
                               lambda line: self._dispatch(pack_id, line))
 
     async def _uart_loop(self, label: str, addr: str,
-                         on_line: Callable[[str], None]) -> None:
+                         on_line: Callable[[str], None],
+                         on_connect: Callable[[BleakClient], Awaitable[None]] | None = None,
+                         ) -> None:
         """Hold a notify subscription on FFE1 and feed each CRLF line to
         on_line. Shared by the packs and the ACR, which speak the same
-        transparent-UART protocol."""
+        transparent-UART protocol. on_connect, if given, runs as a task for
+        the life of each connection and is cancelled when it drops."""
         backoff = float(self.cfg.reconnect_backoff_seconds)
         faillog = _ConnectFailureLog(label)
         while not self._stop.is_set():
@@ -618,8 +661,13 @@ class BleCollector:
                 try:
                     faillog.success()
                     await client.start_notify(FFE1_CHAR, on_notify)
+                    side = (asyncio.create_task(on_connect(client))
+                            if on_connect else None)
                     while client.is_connected and not self._stop.is_set():
                         await self._sleep_or_stop(2.0)
+                    if side is not None:
+                        side.cancel()
+                        await asyncio.gather(side, return_exceptions=True)
                     try:
                         await client.stop_notify(FFE1_CHAR)
                     except Exception:
@@ -638,11 +686,84 @@ class BleCollector:
                 break
             await self._sleep_or_stop(backoff)
 
+    async def _acr_settings_loop(self, client: BleakClient) -> None:
+        """Read the ACR's settings with `$LIST` soon after each connect, then
+        every acr_settings_seconds. Runs while the connection lasts.
+
+        `$LIST` is the only command ever sent, and it only reads. It goes over
+        the connection the sidecar already holds, so nothing has to be paused
+        (the ACR takes one connection at a time).
+        """
+        if self.cfg.acr_settings_seconds <= 0:
+            return
+        await self._sleep_or_stop(ACR_LIST_FIRST_DELAY_S)
+        while client.is_connected and not self._stop.is_set():
+            await self._read_acr_settings(client)
+            await self._sleep_or_stop(self.cfg.acr_settings_seconds)
+
+    async def _read_acr_settings(self, client: BleakClient) -> None:
+        # The reply has no end marker: collect what arrives in a short window.
+        # Stream frames keep arriving meanwhile and are handled as usual.
+        self._acr_list = []
+        try:
+            await client.write_gatt_char(FFE1_CHAR, ACR_LIST_CMD)
+            await self._sleep_or_stop(ACR_LIST_SETTLE_S)
+        except Exception as e:
+            log.warning("acr: $LIST failed: %r", e)
+            return
+        finally:
+            lines, self._acr_list = self._acr_list, None
+        self._store_acr_settings(lines)
+
+    def _store_acr_settings(self, lines: list[str]) -> None:
+        firmware, settings = parse_acr_list(lines)
+        if not settings:
+            log.warning("acr: no settings in the $LIST reply %r", lines)
+            return
+        now = int(time.time())
+        prev = self.db.latest_acr_settings()
+        if not self.db.insert_acr_settings(now, firmware, settings,
+                                           "\n".join(l.strip() for l in lines)):
+            return
+        log.info("acr: settings %s", settings)
+        if prev is not None and prev[2] != settings:
+            old = prev[2]
+            changed = {k: [old.get(k), settings.get(k)]
+                       for k in sorted(set(old) | set(settings))
+                       if old.get(k) != settings.get(k)}
+            log.warning("acr: settings changed since %s: %s", prev[0], changed)
+            self.db.insert_event(Event(now, "acr_settings_changed", Severity.INFO,
+                                       {"changed": changed, "firmware": firmware}))
+        self._check_acr_expect(now, settings)
+
+    def _check_acr_expect(self, now: int, settings: dict) -> None:
+        """Raise acr_settings_unexpected on the read that first differs from
+        ble.acr_expect, and clear it on the first that matches again."""
+        if not self.cfg.acr_expect:
+            return
+        off = {k: [want, settings.get(k)] for k, want in self.cfg.acr_expect.items()
+               if settings.get(k) != want}
+        last = self.db.conn.execute(
+            "SELECT type FROM events WHERE type IN "
+            "('acr_settings_unexpected', 'acr_settings_unexpected_cleared') "
+            "ORDER BY ts DESC LIMIT 1").fetchone()
+        raised = last is not None and last[0] == "acr_settings_unexpected"
+        if off and not raised:
+            log.warning("acr: settings differ from ble.acr_expect: %s", off)
+            self.db.insert_event(Event(now, "acr_settings_unexpected", Severity.WARN,
+                                       {"off": off}))
+        elif not off and raised:
+            self.db.insert_event(Event(now, "acr_settings_unexpected_cleared",
+                                       Severity.INFO, {}))
+
     def _dispatch_acr(self, line: str) -> None:
         frame = parse_acr_frame(line)
+        if frame is None and self._acr_list is not None and line.strip():
+            self._acr_list.append(line)
+            return
         if frame is None:
-            # Nothing is sent to the ACR, so anything else is unexpected.
-            # Logged once in full, then quietly, in case it means something.
+            # Outside a `$LIST` reply nothing else is expected. Logged once in
+            # full, then quietly, in case it means something.
             if line.strip():
                 if not self._acr_unknown_warned:
                     log.info("acr: unrecognised line %r", line)

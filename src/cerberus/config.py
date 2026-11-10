@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Mapping
 
@@ -84,6 +84,13 @@ class BleConfig:
     # A frame is written whenever an unmapped field changes (contactor events
     # land at the ACR's ~1 s resolution), else at most this often.
     acr_sample_seconds: int = 30
+    # `$LIST` is sent on each ACR connect and then this often; 0 = never.
+    # Read-only: the reply is stored in acr_settings.
+    acr_settings_seconds: int = 86400
+    # Settings the owner expects, by their `$LIST` name in the ACR's units,
+    # e.g. {"House Full Voltage": 1420}. A read that differs raises
+    # acr_settings_unexpected (a finding); empty = no check.
+    acr_expect: dict = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -601,6 +608,19 @@ def read_raw(path: str | Path) -> dict:
     return raw
 
 
+def _acr_expect(raw) -> dict:
+    """ble.acr_expect: {"$LIST name": number}. Names are matched exactly."""
+    if raw in (None, ""):
+        return {}
+    if not isinstance(raw, dict):
+        raise ConfigError("ble.acr_expect must map $LIST names to numbers")
+    try:
+        return {str(k).strip(): int(v) for k, v in raw.items()}
+    except (TypeError, ValueError):
+        raise ConfigError("ble.acr_expect values must be whole numbers in the ACR's "
+                          "units, e.g. 1420 for 14.20 V") from None
+
+
 def load_ui(path: str | Path) -> UiConfig:
     """Like load_analysis, needs no MQTT password: the UI never talks to MQTT."""
     raw = read_raw(path)
@@ -786,6 +806,8 @@ user_agent=str(w_raw.get("user_agent", DEFAULT_WEATHER_UA)).strip(),
         connect_timeout_seconds=float(ble_raw.get("connect_timeout_seconds", 60.0)),
         acr_address=str(ble_raw.get("acr_address") or "").strip(),
         acr_sample_seconds=int(ble_raw.get("acr_sample_seconds", 30)),
+        acr_settings_seconds=int(ble_raw.get("acr_settings_seconds", 86400)),
+        acr_expect=_acr_expect(ble_raw.get("acr_expect")),
     )
     # At least one device: packs, the ACR, or a temperature sensor alone (a
     # van whose batteries aren't Lithionics can still log its cabin).

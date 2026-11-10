@@ -724,6 +724,15 @@ class _Edge:
     ignore: object = None
 
 
+def _acr_value(name: str, v) -> str:
+    """An ACR $LIST value for people: voltages are hundredths of a volt."""
+    if v is None:
+        return "missing"
+    if "Voltage" in name and isinstance(v, (int, float)):
+        return f"{v / 100:.2f} V"
+    return str(v)
+
+
 def _edge_rows(conn, types) -> list:
     qs = ",".join("?" * (2 * len(types)))
     names = [t for t in types] + [t + "_cleared" for t in types]
@@ -765,6 +774,15 @@ EDGES = (
     _Edge("low_charge", ("low_soc",), ATTENTION, "The batteries are low",
           lambda d, e, s: f"The lowest pack is at {d.get('min_soc', 0):.0f}%.",
           "Cut loads or charge: drive, plug in, or wait for sun."),
+    _Edge("acr_settings", ("acr_settings_unexpected",), ATTENTION,
+          "The alternator relay's settings have changed",
+          lambda d, e, s: ("The alternator charge relay (ACR) read back "
+                           + "; ".join(f"{k} {_acr_value(k, got)}, expected {_acr_value(k, want)}"
+                                       for k, (want, got) in (d.get("off") or {}).items())
+                           + ". Its cutoffs are what keep the alternator from overcharging "
+                             "the batteries on a drive."),
+          "Set them again in the Lithionics app's terminal console. If they changed after the "
+          "relay lost power, the settings don't survive a power cut: note it."),
     _Edge("critical_voltage", ("low_soc_crit",), URGENT, "Battery voltage is critically low",
           lambda d, e, s: (f"A pack reached {d.get('min_voltage', 0):.2f} V. Close to this, the "
                            f"battery disconnects itself to protect the cells."),
