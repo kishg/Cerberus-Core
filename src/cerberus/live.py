@@ -34,6 +34,7 @@ def snapshot(
     solar: SolarState,
     ac: AcState,
     capacity_fallback_ah: float | None = None,
+    inverter_idle: dict | None = None,
 ) -> dict:
     out: dict = {"v": VERSION, "ts": now, "cerbo_online": bool(cerbo_online),
                  "bank": None, "solar": None, "ac": None}
@@ -81,7 +82,12 @@ def snapshot(
             # Victron's sign: negative while inverting; null with it off.
             "dc_current": _r(ac.dc_current),
             "charging_from_ac": ac.is_charging_from_ac,
+            # VE.Bus Mode: 1 charger only, 2 inverter only, 3 on, 4 off.
+            "mode": ac.inverter_mode,
         }
+    # Idle shut-off's status (cerberus.inverter_idle.status), for the AC tile
+    # and its Turn inverter on button.
+    out["inverter_idle"] = inverter_idle
     return out
 
 

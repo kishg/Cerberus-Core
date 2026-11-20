@@ -14,6 +14,7 @@ from . import envfile as envfile_mod
 from . import fastcapture as fastcapture_mod
 from . import geocode as geocode_mod
 from . import heater as heater_mod
+from . import inverter_idle as inverter_idle_mod
 from . import location as location_mod
 from . import model as model_mod
 from . import obd as obd_mod
@@ -294,6 +295,7 @@ class Config:
     # How the screens and findings show temperatures (system.temperature_unit).
     temperature_unit: str = "F"
     victron: VictronConfig = VictronConfig()
+    inverter_idle: inverter_idle_mod.Settings = inverter_idle_mod.DEFAULT_SETTINGS
 
 
 TEMPERATURE_UNITS = ("F", "C")
@@ -527,6 +529,33 @@ def _parse_fast_capture(raw: dict, heater: heater_mod.Settings) -> fastcapture_m
     if s.pre_seconds < 0 or s.post_seconds < 0 or s.min_interval_seconds < 0 or s.retention_days <= 0:
         raise ConfigError("fast_capture: seconds can't be negative, retention_days must be > 0")
     return s
+
+
+def _parse_inverter_idle(raw: dict) -> inverter_idle_mod.Settings:
+    """inverter_idle: off unless the owner turns it on (cerberus.inverter_idle)."""
+    m = inverter_idle_mod
+    h = raw.get("inverter_idle") or {}
+    try:
+        settings = m.Settings(
+            enabled=_parse_bool(h.get("enabled", False), "inverter_idle.enabled"),
+            threshold_w=float(h.get("threshold_w", m.THRESHOLD_W)),
+            minutes=float(h.get("minutes", m.MINUTES)),
+            hold_minutes=float(h.get("hold_minutes", m.HOLD_MINUTES)),
+            morning_on=m.parse_hhmm(h.get("morning_on", m.MORNING_ON), "inverter_idle.morning_on"),
+            quiet_start=m.parse_hhmm(h.get("quiet_start"), "inverter_idle.quiet_start"),
+            quiet_end=m.parse_hhmm(h.get("quiet_end"), "inverter_idle.quiet_end"),
+        )
+    except (TypeError, ValueError) as err:
+        raise ConfigError(f"inverter_idle: {err}") from None
+    if settings.threshold_w <= 0:
+        raise ConfigError("inverter_idle.threshold_w: must be above 0 W")
+    if settings.minutes < 1:
+        raise ConfigError("inverter_idle.minutes: at least 1 minute")
+    if settings.hold_minutes < 0:
+        raise ConfigError("inverter_idle.hold_minutes: can't be negative")
+    if (settings.quiet_start is None) != (settings.quiet_end is None):
+        raise ConfigError("inverter_idle: set both quiet_start and quiet_end, or neither")
+    return settings
 
 
 def _parse_heater(raw: dict, bank: BankConfig) -> heater_mod.Settings:
@@ -953,4 +982,5 @@ user_agent=str(w_raw.get("user_agent", DEFAULT_WEATHER_UA)).strip(),
         timezone=_parse_timezone(raw),
         temperature_unit=_parse_temperature_unit(raw),
         victron=_parse_victron(raw),
+        inverter_idle=_parse_inverter_idle(raw),
     )

@@ -102,6 +102,9 @@ class AcState:
     input_source: int | None = None
     inverter_state: int | None = None
     inverter_mode: int | None = None
+    # The VE.Bus device instance (276 on this rig), for the one topic Cerberus
+    # writes: vebus/<inst>/Mode (cerberus.inverter_idle).
+    vebus_instance: int | None = None
     # Inverter DC terminals. Current is as Victron signs it: negative while
     # inverting (drawing from the bank). Both go null with the inverter off.
     dc_voltage: float | None = None
@@ -186,10 +189,11 @@ class AcState:
                 self.inverter_state = int(v)
                 self._stamp()
             return True
-        if _VEBUS_MODE.match(rest):
+        if (mm := _VEBUS_MODE.match(rest)):
             v = _num(value)
             if v is not None:
                 self.inverter_mode = int(v)
+                self.vebus_instance = int(mm.group("inst"))
                 self._stamp()
             return True
         return False

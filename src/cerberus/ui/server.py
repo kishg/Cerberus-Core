@@ -26,6 +26,8 @@ cloud relay later):
                                   used for the van's only while it is with the van
                                   (cerberus.phonefix); needs a session
   POST /api/v1/settings           {"changes": {key: value}}; needs a session
+  POST /api/v1/inverter/on        {}: turn the inverter back on from charger-only
+                                  (cerberus.inverter_idle); needs a session
   POST /api/v1/notes              {key, text, title, num?, kind?}: a note on a finding
                                   (cerberus.notes); kind "resolution" with num says what
                                   fixed that occurrence; needs a session
@@ -70,7 +72,7 @@ from urllib.parse import parse_qs, quote, urlsplit
 
 from .. import config as cfg_mod
 from .. import blescan, detect, firstrun, health, learn, location, notes, phonefix
-from .. import victron_imports
+from .. import inverter_idle, victron_imports
 from .. import settings as settings_mod
 from . import access, api, auth
 
@@ -397,6 +399,12 @@ def make_handler(app: App):
                     if not app.sessions.valid(self._token()):
                         return self._json(401, {"error": "sign in (Settings) to import settings files"})
                     return self._victron_post(ep, body, addr)
+                if ep == "inverter/on":
+                    if not app.sessions.valid(self._token()):
+                        return self._json(401, {"error": "enter the PIN to turn the inverter on"})
+                    inverter_idle.write_request(app.config_path, int(time.time()), addr)
+                    log.info("turn inverter on requested from %s", addr)
+                    return self._json(200, {"ok": True})
                 if ep == "location/phone":
                     if not app.sessions.valid(self._token()):
                         return self._json(401, {"error": "enter the PIN to share this phone's location"})

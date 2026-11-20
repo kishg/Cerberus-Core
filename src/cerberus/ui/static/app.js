@@ -115,6 +115,51 @@ async function postJSON(path, body) {
 
 // ---------------------------------------------------------------- Now
 
+// Idle shut-off (cerberus.inverter_idle): what it's doing, and the button that
+// turns the inverter back on from charger-only. VE.Bus Mode 1 = charger only.
+const inverterReq = { at: 0, error: null };
+
+function renderInverter(ac, idle, d) {
+  const card = document.getElementById("inverter");
+  const chargerOnly = ac && ac.mode === 1;
+  card.hidden = !(chargerOnly || (idle && (idle.enabled || idle.off_by_idle)));
+  if (card.hidden) return;
+  const line = document.getElementById("inverter-status"), action = document.getElementById("inverter-action");
+  action.replaceChildren();
+  if (chargerOnly) {
+    const why = idle && idle.off_by_idle
+      ? `Charger-only since ${hhmm(idle.off_ts)}: AC was idle${idle.morning_on ? ` · back on at ${idle.morning_on}` : ""}`
+      : "Charger-only (set by hand or another app)";
+    statusLine(line, "info", why);
+    const waiting = Date.now() - inverterReq.at < 90000;
+    if (inverterReq.error) action.append(el("p", { class: "detail" }, inverterReq.error));
+    if (!token()) {
+      action.append(el("p", { class: "detail" }, "Sign in (Settings) to turn the inverter on from here."));
+    } else {
+      const btn = el("button", { type: "button", class: "btn" }, waiting ? "Turning on…" : "Turn inverter on");
+      btn.disabled = waiting;
+      btn.addEventListener("click", async () => {
+        inverterReq.error = null;
+        try { await postJSON("/inverter/on", {}); inverterReq.at = Date.now(); }
+        catch (err) { inverterReq.error = `Couldn't ask for it: ${err.message}`; }
+        renderInverter(ac, idle, d);
+      });
+      action.append(btn);
+    }
+    return;
+  }
+  inverterReq.at = 0;
+  if (!idle || !idle.enabled) return statusLine(line, "good", ac && ac.mode === 3 ? "On" : "–");
+  const rule = `under ${fmtNum(idle.threshold_w, 0)} W for ${fmtNum(idle.minutes, 0)} min`;
+  if (idle.pending) statusLine(line, "info", "Switching…");
+  else if (ac && ac.shore_connected) statusLine(line, "good", "On · shore power, idle shut-off waits");
+  else if (idle.quiet) statusLine(line, "good", `On · quiet hours, idle shut-off paused`);
+  else if (idle.hold_until) statusLine(line, "good", `On · idle shut-off resumes at ${hhmm(idle.hold_until)}`);
+  else if (idle.idle_s !== null) statusLine(line, "warning",
+    `On · idle ${Math.floor(idle.idle_s / 60)} of ${fmtNum(idle.minutes, 0)} min, then charger-only`);
+  else statusLine(line, "good", `On · charger-only when AC is ${rule}`);
+}
+
 // A tile with a chart behind it links to that chart on History (CHARTS ids).
 function tile(label, value, detail, chart) {
   const t = chart ? el("a", { class: "card tile linked", href: "#history", "aria-label": `${label}: ${value}, show history` })
@@ -158,6 +203,7 @@ function renderNow(d) {
   if (solar) tiles.append(tile("Solar", `${fmtNum(solar.pv_w, 0)} W`, `${solar.state || "–"} · today ${fmtNum(solar.yield_today_kwh * 1000, 0)} Wh`, "solar-power"));
   if (ac) tiles.append(tile("AC load", `${fmtNum(ac.consumption_w, 0)} W`,
     `${ac.shore_connected ? "Shore power" : "Inverter"}${ac.inverter_state ? " · " + ac.inverter_state : ""}`, "ac-load"));
+  renderInverter(ac, snap.inverter_idle, d);
   const dl = d.dc_loads;
   if (dl) tiles.append(tile("DC loads", dl.a === null ? "–" : `${fmtNum(dl.w, 0)} W`,
     dl.a === null ? DC_LOADS_WHY[dl.reason] : `${fmtNum(dl.a, 1)} A · worked out`, "dc-loads"));

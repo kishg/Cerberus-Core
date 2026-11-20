@@ -25,8 +25,11 @@ and tells the owner in plain words what is wrong, why, and what to check.
 - **Home Assistant is optional:** MQTT discovery and state topics, when
   turned on.
 
-**Read-only to Victron.** Cerberus subscribes to the GX's `N/` topics and
-publishes only the keepalive. It never writes settings or switches anything.
+**Read-only to Victron, with one opt-in exception.** Cerberus subscribes to
+the GX's `N/` topics and publishes the keepalive. It never writes settings.
+The one switch it can make is idle shut-off (off by default): the inverter's
+mode, charger-only or on, over the local connection only, confirmed by
+reading it back.
 
 ## Install on a mini PC in the van
 

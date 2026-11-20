@@ -39,7 +39,9 @@ class CerboMqtt:
       (full republish); the rest carry suppress-republish.
     - LWT: ``<publish_namespace>/availability`` retained → ``offline`` on broker-
       detected disconnect. On successful connect publishes ``online``.
-    - Never publishes ``W/`` topics into the Victron tree.
+    - Writes into the Victron tree only through write_vebus_mode(): the
+      inverter's Mode, 1 or 3, for idle shut-off (cerberus.inverter_idle).
+      Nothing else ever publishes ``W/``.
     """
 
     # A class default too, so a dispatcher built without __init__ has it.
@@ -392,6 +394,25 @@ class CerboMqtt:
             self.client.disconnect()
         except Exception:
             pass
+
+    def write_vebus_mode(self, instance: int, mode: int) -> bool:
+        """The one write Cerberus makes to the Cerbo: vebus/<inst>/Mode.
+
+        Only charger-only (1) and on (3); anything else is refused here, not
+        just by the caller. Returns False when not connected (the caller
+        confirms by reading the mode back either way)."""
+        from .inverter_idle import WRITABLE_MODES
+        if mode not in WRITABLE_MODES:
+            raise ValueError(f"refusing to write vebus Mode {mode}")
+        if not self.own_topics:
+            # The VRM cloud relay: never a path for writes.
+            return False
+        if not self.is_connected:
+            return False
+        topic = f"W/{self.cfg.portal_id}/vebus/{int(instance)}/Mode"
+        self.client.publish(topic, payload=json.dumps({"value": mode}).encode(), qos=1)
+        log.info("wrote %s = %s", topic, mode)
+        return True
 
     def publish(self, topic: str, payload: str | bytes, retain: bool = False, qos: int = 0) -> None:
         if isinstance(payload, str):
