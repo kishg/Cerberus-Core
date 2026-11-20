@@ -21,6 +21,7 @@ from . import envfile
 from . import phonefix
 from . import drives as drives_mod
 from . import heater as heater_mod
+from . import inverter_idle as inverter_idle_mod
 from . import live as live_mod
 from .ha_mqtt import HaBroker, NoBroker
 from . import vehicle as vehicle_mod
@@ -70,6 +71,7 @@ KV_DEVICE_ID = "device.id"     # stable box identity (pairing, sync, relay later
 DRIVES_TICK_PERIOD = 300
 FINDINGS_TICK_PERIOD = 300     # numbering findings (cerberus.findings_log)
 CLOUD_RETRY_SECONDS = 300       # after a failed cloud start (no internet, VRM down)
+KV_IDLE_REQUEST = "inverter_idle.request_handled"  # ts of the last button press acted on
 HEATER_TICK_PERIOD = 30         # one ac_samples write; on/off within a sample
 
 
@@ -150,6 +152,11 @@ class Cerberus:
                         "cabin cloud fallback disabled")
         self.last_drives_tick_ts: int = 0
         self.last_heater_tick_ts: int = 0
+        # Idle shut-off (cerberus.inverter_idle): its state survives restarts,
+        # so "we switched it off" is still known after a settings change.
+        self.idle_state = inverter_idle_mod.State.from_json(
+            self.db.get_kv(inverter_idle_mod.KV_STATE))
+        self.idle_request_handled: int = int(self.db.get_kv(KV_IDLE_REQUEST) or 0)
         # instance -> {"soh": float, "capacity_ah": float}. Keyed by Victron
         # device instance because that is what the topic carries; the pack_id
         # mapping comes from the Batteries array, which is the only place the
@@ -402,9 +409,12 @@ class Cerberus:
         the loop that watches the Cerbo.
         """
         try:
+            now = int(time.time())
             snap = live_mod.snapshot(
-                int(time.time()), online, self.bank, self.solar, self.ac,
+                now, online, self.bank, self.solar, self.ac,
                 capacity_fallback_ah=self.cfg.bank.capacity_ah,
+                inverter_idle=inverter_idle_mod.status(
+                    replace(self.cfg.inverter_idle, tz=self.van_tz()), self.idle_state, now),
             )
             self.db.set_kv(live_mod.KV_SNAPSHOT, live_mod.dumps(snap))
         except Exception:
@@ -819,6 +829,7 @@ class Cerberus:
                 if self.cfg.drives.enabled:
                     self._drives_tick()
                 self._heater_tick()
+                self._inverter_idle_tick(online)
                 self.fast.tick()
                 self._phone_tick()
                 self._snapshot_tick(online)
@@ -949,6 +960,57 @@ class Cerberus:
             except Exception:
                 log.exception("publish_event failed")
             log.info("event: %s/%s %s", ev.severity.value, ev.type, ev.detail)
+
+    def _inverter_idle_tick(self, online: bool) -> None:
+        """Idle shut-off (cerberus.inverter_idle): feed it the AC readings,
+        make the one write it may ask for, record what happened. Runs every
+        liveness tick; never fatal to the loop."""
+        now = int(time.time())
+        try:
+            requested = False
+            path = getattr(self, "config_path", None)
+            req_ts = inverter_idle_mod.read_request(path) if path else None
+            if (req_ts is not None and req_ts > self.idle_request_handled
+                    and now - req_ts <= inverter_idle_mod.REQUEST_FRESH_SECONDS):
+                requested = True
+            # Writes go over the local link only; the cloud relay can feed
+            # readings while it is down, but never carries a write.
+            connected = bool(online and self.mqtt.is_connected)
+            load = self.ac.total_consumption_w
+            if load is None:
+                load = self.ac.total_output_w
+            readings = inverter_idle_mod.Readings(
+                now=now, load_w=load, mode=self.ac.inverter_mode,
+                inverter_state=self.ac.inverter_state,
+                shore_connected=self.ac.shore_connected, connected=connected,
+                turn_on_requested=requested)
+            settings = replace(self.cfg.inverter_idle, tz=self.van_tz())
+            d = inverter_idle_mod.decide(settings, self.idle_state, readings)
+            if d.write_mode is not None:
+                if self.ac.vebus_instance is None:
+                    log.warning("idle shut-off: no VE.Bus instance seen; not writing")
+                    return
+                self.mqtt.write_vebus_mode(self.ac.vebus_instance, d.write_mode)
+            # A press is used up once acted on, or once there's nothing for it
+            # to do (the inverter isn't in charger-only); kept while the link
+            # is down, until it goes stale.
+            if requested and (d.write_mode == inverter_idle_mod.MODE_ON
+                              or (connected and self.ac.inverter_mode is not None
+                                  and self.ac.inverter_mode != inverter_idle_mod.MODE_CHARGER_ONLY)):
+                self.idle_request_handled = req_ts
+                self.db.set_kv(KV_IDLE_REQUEST, str(req_ts))
+            if d.state != self.idle_state:
+                self.idle_state = d.state
+                self.db.set_kv(inverter_idle_mod.KV_STATE, d.state.to_json())
+            for ev in d.events:
+                self.db.insert_event(ev)
+                try:
+                    self.publisher.publish_event(ev)
+                except Exception:
+                    log.exception("publish_event failed")
+                log.info("event: %s/%s %s", ev.severity.value, ev.type, ev.detail)
+        except Exception:
+            log.exception("inverter idle tick failed")
 
     def _weather_tick(self) -> None:
         """Fetch outdoor conditions and store them next to the electrical data.

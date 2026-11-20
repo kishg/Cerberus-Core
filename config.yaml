@@ -391,6 +391,18 @@ heater:
   off_delta_w: 400       # back under baseline + this = run ends
   baseline_max_w: 800    # samples above this never count toward the baseline
   default_baseline_w: 150
+inverter_idle:
+  # Idle shut-off (src/cerberus/inverter_idle.py): charger-only once the AC
+  # load stays under threshold_w for minutes; back on at morning_on, from the
+  # UI's Turn inverter on button, or by hand. The only write Cerberus makes to
+  # the GX (vebus Mode 1 / 3). Off unless turned on; also editable in Settings.
+  enabled: false
+  threshold_w: 150       # above Starlink alone, below Starlink + TV
+  minutes: 15
+  hold_minutes: 60       # after any turn-on, before it may act again
+  morning_on: "07:00"    # null = button / by hand only
+  quiet_start: null      # e.g. "18:00": never shut off in this window
+  quiet_end: null
 weather:
   # Outdoor conditions from met.no, stored in weather_samples alongside the
   # electrical data. This exists because the van's seasonal energy balance has

@@ -19,8 +19,9 @@ with you, and credit you unless you'd rather we didn't.
 - **The web UI and its API:** the settings PIN, sessions, the boundary
   between what is read-only and what needs the PIN, and the "with the van"
   checks.
-- **Anything that would let Cerberus write to a Victron GX.** It must stay
-  read-only.
+- **Anything that would let Cerberus write to a Victron GX** beyond the one
+  opt-in write: the inverter's mode (charger-only or on) for idle shut-off,
+  which needs the PIN from the UI and never goes over the VRM cloud relay.
 - **Secret handling:** `.env`, the files beside `config.yaml`, logs, and the
   migration bundle.
 - **The installers and services:** `bin/install-linux.sh`,

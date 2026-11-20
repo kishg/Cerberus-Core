@@ -102,6 +102,33 @@ SETTINGS = (
             "Flag an upcoming service this many miles before the van's own service "
             "countdown reaches zero (from the chassis maker's app, when imported).",
             "number", " mi", getter=lambda c: c.thresholds["service_due_mi"]),
+    Setting("inverter_idle.enabled", "Inverter", "Idle shut-off",
+            "Switch the inverter to charger-only when the AC load stays below the idle "
+            "level for the idle time. Shore charging still works. It comes back on at the "
+            "morning time, from the Turn inverter on button, or when switched by hand.",
+            "bool", getter=lambda c: c.inverter_idle.enabled),
+    Setting("inverter_idle.threshold_w", "Inverter", "Idle level",
+            "AC load below this counts as idle. Set it just above what's always on that "
+            "you're happy to lose (150 W is above Starlink alone, below Starlink and the TV).",
+            "number", " W", getter=lambda c: c.inverter_idle.threshold_w),
+    Setting("inverter_idle.minutes", "Inverter", "Idle time",
+            "How long the load must stay below the idle level before the inverter goes "
+            "to charger-only.", "number", " min", getter=lambda c: c.inverter_idle.minutes),
+    Setting("inverter_idle.hold_minutes", "Inverter", "Stay on after turning on",
+            "After the inverter comes back on (morning, button or by hand), wait this "
+            "long before idle shut-off may act again.",
+            "number", " min", getter=lambda c: c.inverter_idle.hold_minutes),
+    Setting("inverter_idle.morning_on", "Inverter", "Morning turn-on",
+            "Turn the inverter back on at this time (HH:MM, van time) after an idle "
+            "shut-off. Empty: only the button or a hand switch turns it back on.",
+            "text", optional=True, getter=lambda c: c.inverter_idle.morning_on),
+    Setting("inverter_idle.quiet_start", "Inverter", "Never shut off from",
+            "Start of a daily window (HH:MM) when idle shut-off never acts, e.g. evenings "
+            "so a quiet movie scene can't cut the TV. Empty: no window.",
+            "text", optional=True, getter=lambda c: c.inverter_idle.quiet_start),
+    Setting("inverter_idle.quiet_end", "Inverter", "Never shut off until",
+            "End of that window (HH:MM). It may cross midnight, e.g. 18:00 to 00:30.",
+            "text", optional=True, getter=lambda c: c.inverter_idle.quiet_end),
     Setting("system.temperature_unit", "Display", "Temperature units",
             "Fahrenheit or Celsius, for every temperature on these screens and in "
             "findings: air, batteries and equipment alike.",
