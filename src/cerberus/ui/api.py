@@ -16,6 +16,7 @@ from datetime import tzinfo
 
 from .. import findings as findings_mod
 from .. import findings_log as findings_log_mod
+from .. import service_log
 from ..detectors import KV_LAST_FULL_CHARGE
 from ..live import KV_SNAPSHOT
 from ..location import local
@@ -261,10 +262,13 @@ WARNING_STALE_S = 86400
 
 
 def chassis_view(conn: sqlite3.Connection, ctx: Context, now: int | None = None,
-                 notes: list[dict] | None = None) -> dict:
+                 notes: list[dict] | None = None,
+                 service: list[dict] | None = None) -> dict:
     """The Chassis tab: engine, chassis battery, fuel, DEF and odometer
     (vehicle_view), plus what an import adds (tyres, starter battery, fluid
-    warnings, lock, service countdown), the chassis findings and the last few drives."""
+    warnings, lock, service countdown), the chassis findings, the last few drives
+    and the service log (cerberus.service_log: the owner's ``service`` items and
+    the chassis's own events)."""
     now = int(time.time()) if now is None else now
     out: dict = {"now": now, "tz": ctx.tz_name, "temp_unit": ctx.temp_unit, "vehicle": vehicle_view(conn, now)}
 
@@ -310,6 +314,7 @@ def chassis_view(conn: sqlite3.Connection, ctx: Context, now: int | None = None,
                        "alt_ah": m.get("alt_ah"), "peak_bank_v": m.get("peak_bank_v"),
                        "coolant_max_c": m.get("coolant_max_c")})
     out["drives"] = drives
+    out["service_log"] = service_log.view(conn, service or [], ctx.tz)
     return out
 
 

@@ -138,6 +138,20 @@ th { color: var(--muted); font-weight: 500; }
 .known-tag { margin-left: 6px; white-space: nowrap; }
 .finding.known h2 { font-weight: 500; }
 .link-btn + .link-btn, .when + .link-btn { margin-left: 8px; }
+/* Service log (Chassis) */
+.card-head { display: flex; align-items: center; gap: 8px; }
+.card-head h2 { margin-right: auto; }
+.card-head .btn { padding: 4px 10px; font-size: 13px; }
+#svc-form { padding: 8px 0 12px; border-bottom: 1px solid var(--grid); }
+.svc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
+.svc-field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-2); margin-top: 6px; }
+.svc-field input, .svc-field select { font: inherit; font-size: 14px; color: var(--text); background: var(--page); border: 0;
+  box-shadow: 0 0 0 1px var(--axis); border-radius: 6px; padding: 6px 8px; min-width: 0; }
+.svc-field .note-text { flex: none; width: 100%; box-sizing: border-box; }
+.svc-title { font-weight: 600; }
+.svc-text { white-space: pre-wrap; color: var(--text); }
+.svc-meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+#svc-more { margin-top: 8px; }
 .link-btn { font: inherit; font-size: 12px; color: var(--muted); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; }
 .chart .note-mark { stroke: var(--text-2); stroke-width: 1; stroke-opacity: 0.6; shape-rendering: crispEdges; }
 .chart .note-label { font-size: 10px; fill: var(--text-2); }

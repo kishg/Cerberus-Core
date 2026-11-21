@@ -26,12 +26,14 @@ ble_captures/
 soak/archive/
 
 # Per-box state written by the UI beside config.yaml: settings changed in the
-# UI (setup.yaml), the settings PIN's hash, sessions, the phone position and
-# the owner's notes on findings, imported VictronConnect settings files.
+# UI (setup.yaml), the settings PIN's hash, sessions, the phone position,
+# the owner's notes on findings, the service log and imported VictronConnect
+# settings files.
 # None belongs in git.
 setup.yaml
 .cerberus-ui-pin.json
 .cerberus-ui-sessions.json
 .cerberus-phone-fix.json
 .cerberus-notes.json
+.cerberus-service-log.json
 .cerberus-victron/

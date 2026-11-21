@@ -34,6 +34,12 @@ cloud relay later):
   POST /api/v1/notes/delete       {id}; needs a session
   POST /api/v1/notes/known        {id, known}: mark a note's finding known, or flag it
                                   again; needs a session
+  GET  /api/v1/service            the service log: the owner's service items and the
+                                  chassis's events (codes, engine light, service resets)
+  POST /api/v1/service            {date, category, text, shop?, odometer_mi?, cost?}: a
+                                  service item (cerberus.service_log); needs a session
+  POST /api/v1/service/update     {id, ...the same fields}; needs a session
+  POST /api/v1/service/delete     {id}; needs a session
   GET  /api/v1/victron/imports    imported VictronConnect settings files per device: what
                                   changed since the previous file, and the check against
                                   what the Cerbo publishes (cerberus.victron_imports)
@@ -52,7 +58,7 @@ database. Its only writes are setup.yaml (cerberus.settings, validated
 first) and the PIN file (auth), both beside config.yaml, and during first-run
 setup the first config.yaml and the Cerbo password in .env (cerberus.firstrun),
 the owner's phone position (cerberus.phonefix), notes on findings
-(cerberus.notes), and imported VictronConnect settings files
+(cerberus.notes), the service log (cerberus.service_log), and imported VictronConnect settings files
 (cerberus.victron_imports).
 Setup's probe is the only time it talks to the Cerbo: one short read-only
 MQTT connection.
@@ -72,7 +78,7 @@ from urllib.parse import parse_qs, quote, urlsplit
 
 from .. import config as cfg_mod
 from .. import blescan, detect, firstrun, health, learn, location, notes, phonefix
-from .. import inverter_idle, victron_imports
+from .. import inverter_idle, service_log, victron_imports
 from .. import settings as settings_mod
 from . import access, api, auth
 
@@ -279,7 +285,10 @@ def make_handler(app: App):
                 if ep == "now":
                     return self._json(200, api.now_view(conn, ctx, notes=self._notes()))
                 if ep == "chassis":
-                    return self._json(200, api.chassis_view(conn, ctx, notes=self._notes()))
+                    return self._json(200, api.chassis_view(conn, ctx, notes=self._notes(),
+                                                            service=self._service()))
+                if ep == "service":
+                    return self._json(200, service_log.view(conn, self._service(), ctx.tz))
                 if ep == "health":
                     return self._json(200, health.health_view(conn, int(time.time()), ctx.tz))
                 if ep == "findings":
@@ -316,6 +325,9 @@ def make_handler(app: App):
 
         def _notes(self) -> list[dict]:
             return notes.read(app.config_path) if app.config_path else []
+
+        def _service(self) -> list[dict]:
+            return service_log.read(app.config_path) if app.config_path else []
 
         def _settings_view(self):
             if not app.config_path:
@@ -395,6 +407,10 @@ def make_handler(app: App):
                     if not app.sessions.valid(self._token()):
                         return self._json(401, {"error": "sign in (Settings) to add or delete notes"})
                     return self._notes_post(ep, body, addr)
+                if ep in ("service", "service/update", "service/delete"):
+                    if not app.sessions.valid(self._token()):
+                        return self._json(401, {"error": "sign in (Settings) to change the service log"})
+                    return self._service_post(ep, body, addr)
                 if ep in ("victron/import", "victron/import/delete"):
                     if not app.sessions.valid(self._token()):
                         return self._json(401, {"error": "sign in (Settings) to import settings files"})
@@ -421,6 +437,8 @@ def make_handler(app: App):
                 return self._json(400, {"error": str(err)})
             except notes.NoteError as err:
                 return self._json(400, {"error": str(err)})
+            except service_log.ServiceError as err:
+                return self._json(400, {"error": str(err)})
             except victron_imports.VictronImportError as err:
                 return self._json(400, {"error": str(err)})
             return self._json(404, {"error": "not found"})
@@ -441,6 +459,23 @@ def make_handler(app: App):
             if not notes.delete(app.config_path, body.get("id")):
                 return self._json(404, {"error": "no such note"})
             log.info("note %s deleted from %s", body.get("id"), addr)
+            return self._json(200, {"ok": True})
+
+        def _service_post(self, ep: str, body: dict, addr: str):
+            if ep == "service":
+                entry = service_log.add(app.config_path, body)
+                log.info("service item %s (%s, %s) added from %s",
+                         entry["id"], entry["category"], entry["date"], addr)
+                return self._json(200, {"entry": entry})
+            if ep == "service/update":
+                entry = service_log.update(app.config_path, body.get("id"), body)
+                if entry is None:
+                    return self._json(404, {"error": "no such entry"})
+                log.info("service item %s updated from %s", entry["id"], addr)
+                return self._json(200, {"entry": entry})
+            if not service_log.delete(app.config_path, body.get("id")):
+                return self._json(404, {"error": "no such entry"})
+            log.info("service item %s deleted from %s", body.get("id"), addr)
             return self._json(200, {"ok": True})
 
         def _victron_post(self, ep: str, body: dict, addr: str):
