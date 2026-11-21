@@ -164,15 +164,6 @@ box's services.
 ## Updating, logs, removing
 
 - **Update:** `git pull` in the checkout, then `sudo bin/install-linux.sh`.
-- **Status table:** `tools/status-on-box.sh [host]` from a laptop prints the
-  24 h status table and the owner's recent notes, run on the box as the
-  `cerberus` user (its data and notes are readable by that user only). It
-  needs one sudoers rule on the box, allowing exactly that command:
-
-  ```
-  echo 'YOUR_USER ALL=(cerberus) NOPASSWD: /opt/cerberus/.venv/bin/python /opt/cerberus/tools/status_report.py --db /var/lib/cerberus/cerberus.db --config /etc/cerberus/config.yaml' \
-    | sudo tee /etc/sudoers.d/cerberus-status && sudo chmod 440 /etc/sudoers.d/cerberus-status && sudo visudo -c
-  ```
 - **Logs:** `journalctl -u cerberus -u cerberus-ui -u cerberus-ble -f`.
   "waiting for first-run setup" before setup is normal.
 - **Remove:** `sudo systemctl disable --now cerberus cerberus-ui cerberus-ble`,

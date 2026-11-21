@@ -9,6 +9,8 @@ cloud relay later):
                                   a resolution note; the latest closed ones
   GET  /api/v1/findings/log       every numbered occurrence and how it ended (findings_log)
   GET  /api/v1/health             source freshness, coverage, gaps and causes
+  GET  /api/v1/status             the 24 h status table and the owner's recent notes
+                                  (cerberus.status; tools/status_report.py --url)
   GET  /api/v1/about              license, source link (AGPL-3.0 s.13), device id
   GET  /api/v1/settings           editable settings, values and where they came from,
                                   and what setup detection proposes for each
@@ -77,7 +79,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, quote, urlsplit
 
 from .. import config as cfg_mod
-from .. import blescan, detect, firstrun, health, learn, location, notes, phonefix
+from .. import blescan, detect, firstrun, health, learn, location, notes, phonefix, status
 from .. import inverter_idle, service_log, victron_imports
 from .. import settings as settings_mod
 from . import access, api, auth
@@ -289,6 +291,9 @@ def make_handler(app: App):
                                                             service=self._service()))
                 if ep == "service":
                     return self._json(200, service_log.view(conn, self._service(), ctx.tz))
+                if ep == "status":
+                    view = status.status_view(conn, int(time.time()), ctx.tz, notes=self._notes())
+                    return self._json(200, {**view, "tz": ctx.tz_name})
                 if ep == "health":
                     return self._json(200, health.health_view(conn, int(time.time()), ctx.tz))
                 if ep == "findings":

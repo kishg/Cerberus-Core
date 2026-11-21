@@ -74,8 +74,8 @@ def test_owner_notes_print_under_the_table_with_known_marked():
 
 
 def test_reads_without_writing():
-    """It runs beside the live collector: read-only, and a wrong --db fails
-    instead of leaving an empty database behind."""
+    """--db may point at the live collector's database: read-only, and a
+    wrong path fails instead of leaving an empty database behind."""
     path = _seed()
     before = os.stat(path).st_mtime_ns
     subprocess.run([sys.executable, TOOL, "--db", path], capture_output=True, check=True)
@@ -85,18 +85,43 @@ def test_reads_without_writing():
     assert r.returncode != 0 and not os.path.exists(missing)
 
 
-def test_box_wrapper_runs_exactly_what_the_sudoers_rule_allows():
-    """sudo matches the whole command line, so the wrapper, the documented
-    rule and the path install-linux.sh installs to must agree."""
-    import re
-    import shlex
-    root = os.path.join(os.path.dirname(__file__), "..")
-    wrapper = open(os.path.join(root, "tools", "status-on-box.sh")).read()
-    cmd = re.search(r"sudo -n -u cerberus (.+?)\n\s*(--db .+)\n", wrapper.replace("\\\n", "\n"))
-    ran = " ".join(shlex.split(cmd.group(1) + " " + cmd.group(2)))
-    docs = open(os.path.join(root, "docs", "install.md")).read()
-    allowed = re.search(r"NOPASSWD: ([^']+)'", docs).group(1)
-    assert ran == allowed
-    install = open(os.path.join(root, "bin", "install-linux.sh")).read()
-    assert '"$PREFIX/tools/status_report.py"' in install
-    assert allowed.split()[1] == "/opt/cerberus/tools/status_report.py"
+def test_solar_days_are_the_vans_not_the_hosts():
+    """The box runs in UTC; at 9 pm in New York it is already tomorrow there."""
+    import sqlite3
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    from cerberus import status
+    ny = ZoneInfo("America/New_York")
+    now = int(datetime(2026, 11, 20, 21, 0, tzinfo=ny).timestamp())
+    path = os.path.join(tempfile.mkdtemp(), "t.db")
+    Db(path).close()
+    db = sqlite3.connect(path)
+    for ts, y in ((now - 86400, 0.40), (now - 3600, 0.38)):   # yesterday and today, NY
+        db.execute("INSERT INTO solar_samples (ts, pv_power, yield_today_kwh) VALUES (?, 0, ?)",
+                   (ts, y))
+    view = status.status_view(db, now, ny)
+    row = next(r for r in view["rows"] if r[0].startswith("Solar yield"))
+    assert row[1:] == ["380 Wh", "400 Wh", "-20 Wh"]
+
+
+def test_status_over_the_api():
+    """GET /api/v1/status serves the table and notes; --url prints it."""
+    import threading
+    from cerberus import notes
+    from cerberus.ui.server import App, serve
+    path = _seed()
+    cfg = os.path.join(os.path.dirname(path), "config.yaml")
+    open(cfg, "w").close()
+    notes.add(cfg, "early_float", "Checked absorption", "Early float", now=int(time.time()) - 60)
+    app = App(path, 3, 310, "America/New_York", config_path=cfg)
+    httpd = serve(app, "127.0.0.1", 0)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    try:
+        url = f"http://127.0.0.1:{httpd.server_address[1]}"
+        out = subprocess.run([sys.executable, TOOL, "--url", url],
+                             capture_output=True, text=True, check=True).stdout
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+    assert _row(out, "**Bank SoC**")[1:] == ["87.0%", "90.0%", "-3.0%"]
+    assert "*Early float*: Checked absorption" in out

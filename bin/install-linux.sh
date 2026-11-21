@@ -71,9 +71,6 @@ fi
 "$PREFIX/.venv/bin/pip" install -q --upgrade pip
 # Non-editable: the install doesn't depend on this checkout staying put.
 "$PREFIX/.venv/bin/pip" install -q --upgrade "$SRC[ble]"
-# The status table, run on the box as the cerberus user (tools/status-on-box.sh).
-install -d -m 755 "$PREFIX/tools"
-install -m 644 "$SRC/tools/status_report.py" "$PREFIX/tools/status_report.py"
 
 say "Settings and data directories"
 install -d -o cerberus -g cerberus -m 750 "$ETC" "$STATE"
