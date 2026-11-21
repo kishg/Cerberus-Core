@@ -5,8 +5,9 @@ Two things that were fixed to this rig's home and host:
 * **Position.** Weather was fetched for the latitude/longitude in config.yaml
   (northern NJ), wherever the van actually was. A GX with a GPS receiver
   publishes ``gps/<inst>/Position/{Latitude,Longitude}`` and ``gps/<inst>/Fix``;
-  with a fix, that wins. This rig has no receiver (no gps service at all,
-  verified 2026-10-31), so it keeps using the configured position.
+  with a fix, that wins. The first rig had no receiver until 2026-11-21 (no
+  gps service at all, verified 2026-10-31); a USB NMEA receiver on the GX
+  (``gps_dbus``, "NMEA-0183 GPS") now gives it a fix within minutes.
 * **Time zone.** The nightly solar-path day, its 21:00 processing hour and the
   drive report's times were all in the *host's* local time. They should be in
   the van's. Resolution: ``system.timezone`` in config.yaml if set, else the
