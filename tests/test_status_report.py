@@ -71,3 +71,32 @@ def test_owner_notes_print_under_the_table_with_known_marked():
     assert "Owner notes (last 14 days)" in out and "Too old" not in out
     assert "*Inverter low battery* (marked known): Heater runs at night" in out
     assert "*Early float*: Checked absorption" in out
+
+
+def test_reads_without_writing():
+    """It runs beside the live collector: read-only, and a wrong --db fails
+    instead of leaving an empty database behind."""
+    path = _seed()
+    before = os.stat(path).st_mtime_ns
+    subprocess.run([sys.executable, TOOL, "--db", path], capture_output=True, check=True)
+    assert os.stat(path).st_mtime_ns == before
+    missing = os.path.join(os.path.dirname(path), "nope.db")
+    r = subprocess.run([sys.executable, TOOL, "--db", missing], capture_output=True, text=True)
+    assert r.returncode != 0 and not os.path.exists(missing)
+
+
+def test_box_wrapper_runs_exactly_what_the_sudoers_rule_allows():
+    """sudo matches the whole command line, so the wrapper, the documented
+    rule and the path install-linux.sh installs to must agree."""
+    import re
+    import shlex
+    root = os.path.join(os.path.dirname(__file__), "..")
+    wrapper = open(os.path.join(root, "tools", "status-on-box.sh")).read()
+    cmd = re.search(r"sudo -n -u cerberus (.+?)\n\s*(--db .+)\n", wrapper.replace("\\\n", "\n"))
+    ran = " ".join(shlex.split(cmd.group(1) + " " + cmd.group(2)))
+    docs = open(os.path.join(root, "docs", "install.md")).read()
+    allowed = re.search(r"NOPASSWD: ([^']+)'", docs).group(1)
+    assert ran == allowed
+    install = open(os.path.join(root, "bin", "install-linux.sh")).read()
+    assert '"$PREFIX/tools/status_report.py"' in install
+    assert allowed.split()[1] == "/opt/cerberus/tools/status_report.py"

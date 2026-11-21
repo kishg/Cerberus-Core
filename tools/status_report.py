@@ -3,6 +3,9 @@ temperature/humidity range, solar peak and yield — last 24 h vs the 24 h befor
 
     python tools/status_report.py [--db soak/data/cerberus.db] [--config config.yaml]
 
+On an installed box the data and notes belong to the cerberus user, so it runs
+there as that user: tools/status-on-box.sh does that over SSH from a laptop.
+
 Prints GitHub markdown, then the owner's recent notes on findings
 (cerberus.notes): context the data can't show, to read before diagnosing. Temperatures: ambient in F, equipment in C.
 battery_samples.current is per pack; the bank is the sum of packs.
@@ -14,6 +17,8 @@ import argparse
 import sqlite3
 import time
 from datetime import datetime
+from pathlib import Path
+from urllib.parse import quote
 
 from cerberus import notes
 
@@ -62,7 +67,8 @@ def main() -> None:
     ap.add_argument("--config", default="config.yaml",
                     help="the owner's notes are read from beside this file")
     args = ap.parse_args()
-    db = sqlite3.connect(args.db)
+    # Read-only: it runs beside the live collector, sometimes as its user.
+    db = sqlite3.connect(f"file:{quote(str(Path(args.db).resolve()))}?mode=ro", uri=True)
     now = int(time.time())
     a, b, c = now - 2 * DAY, now - DAY, now
     rows: list[tuple[str, str, str, str]] = []
