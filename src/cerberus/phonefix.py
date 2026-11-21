@@ -1,6 +1,6 @@
 """The owner's phone as the van's position, while it is with the van.
 
-Most vans have no GPS on the GX (this one doesn't); the owner's phone does.
+Most vans have no GPS on the GX; the owner's phone does. A GX fix still wins.
 The web app, when the owner turns it on for that phone, sends the phone's
 position (browser geolocation) to the UI, which decides whether it can stand
 for the van's, and if so writes it to a small file beside config.yaml. The
