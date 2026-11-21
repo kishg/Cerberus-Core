@@ -324,6 +324,132 @@ function renderChassis(d) {
     db.append(tr);
   }
   document.getElementById("chassis-empty").hidden = !!(tiles.children.length || d.drives.length || ty);
+  renderServiceLog(d);
+}
+
+// ---------------------------------------------------------------- Service log
+// The owner's service items and the chassis's own events (cerberus.service_log).
+// The list is rebuilt on every poll; the form is not, so typing survives it.
+
+const SVC_SHOWN = 10;
+const SVC_ICON = { service: "good", dtc_set: "warning", dtc_pending: "info", dtc_cleared: "good",
+  mil_on: "warning", mil_off: "good", service_reset: "info" };
+const svc = { all: false, form: null, last: null };
+
+function localDay(ts) {
+  const o = { year: "numeric", month: "2-digit", day: "2-digit", timeZone: state.tz };
+  const d = ts ? new Date(ts * 1000) : new Date();
+  try { return new Intl.DateTimeFormat("en-CA", o).format(d); }
+  catch (_) { delete o.timeZone; return new Intl.DateTimeFormat("en-CA", o).format(d); }
+}
+const dayYear = (ts) => fmtTime(ts, { month: "short", day: "numeric", year: "numeric" });
+
+function renderServiceLog(d) {
+  svc.last = d;
+  const log = d.service_log || { items: [], categories: {} };
+  const signed = !!token();
+  const add = document.getElementById("svc-add");
+  add.hidden = !signed || !!svc.form;
+  add.onclick = () => openServiceForm(d, null);
+  const sub = document.getElementById("svc-sub");
+  sub.replaceChildren();
+  if (!signed) {
+    sub.append(el("a", { href: "#settings" }, "Sign in"), document.createTextNode(
+      " to add service items: oil, tyres, brakes, repairs."));
+  } else if (!log.items.length) {
+    sub.textContent = "Nothing yet. Add the work done on the van; trouble codes, the engine light and service resets appear here by themselves.";
+  }
+  sub.hidden = !sub.childNodes.length;
+
+  const ul = document.getElementById("svc-list");
+  ul.replaceChildren();
+  const shown = svc.all ? log.items : log.items.slice(0, SVC_SHOWN);
+  for (const it of shown) ul.append(serviceItem(it, log, signed, d));
+  const more = document.getElementById("svc-more");
+  more.hidden = log.items.length <= SVC_SHOWN;
+  more.textContent = svc.all ? "Show fewer" : `Show all ${log.items.length}`;
+  more.onclick = () => { svc.all = !svc.all; renderServiceLog(d); };
+}
+
+function serviceItem(it, log, signed, d) {
+  const li = el("li"), what = el("div", { class: "what" });
+  what.append(el("div", { class: "svc-title" }, it.title));
+  const body = it.kind === "service" ? it.text
+    : it.kind === "dtc_cleared" ? "Cleared by a scan tool or the dealer, or by the engine after clean drives. Cerberus never clears codes."
+    : it.detail;
+  if (body) what.append(el("div", { class: "svc-text" }, body));
+  const meta = [it.odometer_mi != null ? `${fmtNum(it.odometer_mi, 0)} mi` : null,
+    it.shop || null, it.cost != null ? fmtNum(it.cost, 2) : null].filter(Boolean);
+  if (meta.length) what.append(el("div", { class: "svc-meta" }, meta.join(" · ")));
+  if (signed && it.kind === "service") {
+    const edit = el("button", { type: "button", class: "link-btn" }, "Edit");
+    edit.addEventListener("click", () => openServiceForm(d, it));
+    const del = el("button", { type: "button", class: "link-btn" }, "Delete");
+    del.addEventListener("click", async () => {
+      del.disabled = true;
+      try { await postJSON("/service/delete", { id: it.id }); loadChassis(); }
+      catch (err) { del.disabled = false; del.textContent = err.message; }
+    });
+    what.append(el("div"), edit, del);
+  }
+  // A reset with no item logged near it: offer to say what the service was.
+  if (signed && it.kind === "service_reset" && !log.items.some((o) => o.kind === "service"
+      && Math.abs(o.ts - it.ts) < 7 * 86400)) {
+    const b = el("button", { type: "button", class: "link-btn" }, "Log what was done");
+    b.addEventListener("click", () => openServiceForm(d, null,
+      { date: localDay(it.ts), odometer_mi: it.odometer_mi }));
+    what.append(el("div"), b);
+  }
+  li.append(statusIcon(SVC_ICON[it.kind] || "info"), what,
+    el("div", { class: "when" }, dayYear(it.ts)));
+  return li;
+}
+
+function openServiceForm(d, entry, preset) {
+  const box = document.getElementById("svc-form");
+  const cats = (d.service_log || {}).categories || {};
+  const v = entry || Object.assign({ date: localDay(), category: "oil", text: "", shop: "", cost: null,
+    odometer_mi: d.vehicle && d.vehicle.odometer ? d.vehicle.odometer.mi : null }, preset || {});
+  const field = (label, input) => { const l = el("label", { class: "svc-field" }); l.append(el("span", {}, label), input); return l; };
+  const date = el("input", { type: "date", max: localDay(), required: "" }); date.value = v.date;
+  const cat = el("select");
+  for (const [k, name] of Object.entries(cats)) cat.append(el("option", { value: k }, name));
+  cat.value = v.category;
+  const odo = el("input", { type: "number", inputmode: "numeric", min: "0", step: "1" });
+  odo.value = v.odometer_mi != null ? Math.round(v.odometer_mi) : "";
+  const text = el("textarea", { rows: "2", maxlength: "1000", class: "note-text",
+    placeholder: "e.g. Oil and filter, 5W-30; rotated tyres" });
+  text.value = v.text;
+  const shop = el("input", { type: "text", maxlength: "120", placeholder: "Optional" }); shop.value = v.shop || "";
+  const cost = el("input", { type: "number", inputmode: "decimal", min: "0", step: "0.01", placeholder: "Optional" });
+  cost.value = v.cost != null ? v.cost : "";
+  const save = el("button", { type: "button", class: "btn" }, entry ? "Save changes" : "Save");
+  const cancel = el("button", { type: "button", class: "btn quiet" }, "Cancel");
+  const msg = el("div", { class: "msg", role: "status" });
+  const close = () => { svc.form = null; box.hidden = true; box.replaceChildren(); renderServiceLog(svc.last); };
+  cancel.addEventListener("click", close);
+  save.addEventListener("click", async () => {
+    save.disabled = true; msg.className = "msg"; msg.textContent = "";
+    const body = { date: date.value, category: cat.value, text: text.value, shop: shop.value,
+      odometer_mi: odo.value === "" ? null : Number(odo.value), cost: cost.value === "" ? null : Number(cost.value) };
+    try {
+      await postJSON(entry ? "/service/update" : "/service", entry ? Object.assign({ id: entry.id }, body) : body);
+      close(); loadChassis();
+    } catch (err) {
+      save.disabled = false; msg.className = "msg err"; msg.textContent = err.message;
+      if (/sign in/i.test(err.message)) setToken(null);
+    }
+  });
+  const grid = el("div", { class: "svc-grid" });
+  grid.append(field("Day", date), field("Kind", cat), field("Odometer (mi)", odo),
+    field("Shop", shop), field("Cost", cost));
+  const row = el("div", { class: "note-row" });
+  row.append(save, cancel);
+  box.replaceChildren(grid, field("What was done", text), row, msg);
+  box.hidden = false;
+  svc.form = entry ? entry.id : "new";
+  document.getElementById("svc-add").hidden = true;
+  text.focus();
 }
 
 // The van from above, front at the top, each tyre's pressure beside it.

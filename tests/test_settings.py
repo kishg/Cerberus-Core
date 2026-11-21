@@ -251,9 +251,9 @@ def test_sign_out_and_new_pin_end_sessions(cfg):
 def test_files_written_beside_config_are_never_committed():
     """10-31: the phone position file was committed with `git add -A`."""
     import subprocess
-    from cerberus import envfile, notes, phonefix
+    from cerberus import envfile, notes, phonefix, service_log
     root = REPO_CONFIG.parent
     names = [auth.PIN_FILE, auth.SESSIONS_FILE, phonefix.PHONE_FILE, cfg_mod.SETUP_FILE, envfile.ENV_FILE,
-             notes.NOTES_FILE]
+             notes.NOTES_FILE, service_log.SERVICE_FILE]
     for n in names:
         assert subprocess.run(["git", "check-ignore", "-q", n], cwd=root).returncode == 0, n

@@ -37,7 +37,8 @@ install -d -o cerberus -g cerberus -m 750 "$ETC" "$STATE"
 for f in config.yaml setup.yaml; do
   install -o cerberus -g cerberus -m 640 "$SRC/$f" "$ETC/$f"
 done
-for f in .env .cerberus-ui-pin.json .cerberus-phone-fix.json .cerberus-notes.json; do
+for f in .env .cerberus-ui-pin.json .cerberus-phone-fix.json .cerberus-notes.json \
+         .cerberus-service-log.json; do
   if [[ -e "$SRC/$f" ]]; then install -o cerberus -g cerberus -m 600 "$SRC/$f" "$ETC/$f"; fi
 done
 if [[ -d "$SRC/.cerberus-victron" ]]; then

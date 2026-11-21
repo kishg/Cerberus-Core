@@ -36,7 +36,7 @@ import yaml
 
 from . import config as cfg_mod
 from . import envfile
-from . import notes, phonefix, victron_imports
+from . import notes, phonefix, service_log, victron_imports
 from . import settings as settings_mod
 from .ui import auth
 
@@ -99,7 +99,8 @@ def bundle(config_path: Path, db_path: Path, out: Path) -> dict:
         + yaml.safe_dump(setup, sort_keys=True, default_flow_style=False))
     files[cfg_mod.SETUP_FILE] = "UI settings + new-box overrides"
 
-    for name in (envfile.ENV_FILE, auth.PIN_FILE, phonefix.PHONE_FILE, notes.NOTES_FILE):
+    for name in (envfile.ENV_FILE, auth.PIN_FILE, phonefix.PHONE_FILE, notes.NOTES_FILE,
+                 service_log.SERVICE_FILE):
         src = config_path.with_name(name)
         if src.exists():
             shutil.copyfile(src, out / name)

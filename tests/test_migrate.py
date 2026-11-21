@@ -14,7 +14,7 @@ import pytest
 import yaml
 
 from cerberus import config as cfg_mod
-from cerberus import envfile, migrate, notes, phonefix, vcsf, victron_imports
+from cerberus import envfile, migrate, notes, phonefix, service_log, vcsf, victron_imports
 from cerberus.db import Db
 from cerberus.ui import auth
 
@@ -34,6 +34,8 @@ def old_box(tmp_path):
     auth.Sessions(cfg).login("2468", "x")
     phonefix.write(cfg, {"lat": 40.86, "lon": -74.41, "accuracy_m": 9, "ts": 1}, "lan")
     notes.add(cfg, "solar_path_resistance", "Tightened the MPPT lugs", now=1)
+    service_log.add(cfg, {"date": "2026-10-01", "category": "oil", "text": "Oil and filter"},
+                    now=1_800_000_000)
     body = json.dumps({"data": {"/Devices/0/SerialNumber": "HQ1"}}).encode()
     victron_imports.add(cfg, "multi.vcsf",
                         vcsf.MAGIC + struct.pack(">I", len(body)) + zlib.compress(body), now=1)
@@ -52,7 +54,8 @@ def test_bundle_has_what_the_new_box_needs(old_box, tmp_path):
     m = migrate.bundle(cfg, db, out)
     names = {p.name for p in out.iterdir()}
     assert {"config.yaml", "setup.yaml", ".env", ".cerberus-ui-pin.json",
-            ".cerberus-phone-fix.json", ".cerberus-notes.json", "cerberus.db", "reports",
+            ".cerberus-phone-fix.json", ".cerberus-notes.json", ".cerberus-service-log.json",
+            "cerberus.db", "reports",
             ".cerberus-victron", "MANIFEST.json"} <= names
     assert auth.SESSIONS_FILE not in names                  # new address, new sign-in
     assert (out.stat().st_mode & 0o777) == 0o700 and (out / ".env").stat().st_mode & 0o077 == 0
