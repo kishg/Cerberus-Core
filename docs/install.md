@@ -20,6 +20,8 @@ This van's own setup (a Mac under launchd) is in [launchd/README.md](../launchd/
 - **Network:** the van's router (Starlink, or a travel router such as a
   GL.iNet), the same network the Cerbo is on. Wired if it's near the router.
 
+Hardware Cerberus has run on, and what to avoid: [tested_hardware.md](tested_hardware.md).
+
 ## 2. Prepare the Cerbo
 
 On the GX (Remote Console or the touch screen):
