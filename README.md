@@ -84,7 +84,7 @@ report a security issue, see [SECURITY.md](SECURITY.md).
 
 ## License
 
-Copyright (C) 2026 KNM Technology.
+Copyright (C) 2026 KNM Technologies LLC.
 
 Cerberus is free software: you can redistribute it and/or modify it under the
 terms of the GNU Affero General Public License as published by the Free
