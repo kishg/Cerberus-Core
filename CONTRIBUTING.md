@@ -19,10 +19,10 @@ location, passwords.
 
 ## Pull requests: after the contributor agreement
 
-Cerberus Core is AGPL-3.0-or-later, and KNM Technology also offers it under
+Cerberus Core is AGPL-3.0-or-later, and KNM Technologies LLC also offers it under
 other terms (the hardware bundle and hosted services). That needs every
 contributor to sign a **Contributor License Agreement (CLA)**. You keep your
-copyright; the CLA gives KNM Technology the right to distribute your
+copyright; the CLA gives KNM Technologies LLC the right to distribute your
 contribution under those terms too.
 
 The CLA is being finalised. **Until it's published here, we can't merge
