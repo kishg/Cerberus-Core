@@ -724,7 +724,42 @@ async function loadFindings() {
   catch (err) { console.error(err); }
 }
 
+// ---------------------------------------------------------------- Storage mode
+
+// The owner says the van is stored (cerberus.storage): a banner while it is, the
+// suggestion when it looks stored, and a nudge when the expected end has passed.
+function renderStorage(s) {
+  const box = document.getElementById("storage");
+  if (!box) return;
+  box.replaceChildren();
+  const signedIn = !!token();
+  const act = (label, body) => {
+    const b = el("button", { type: "button", class: "btn quiet" }, label);
+    b.addEventListener("click", async () => {
+      try { renderStorage((await postJSON("/storage", body)).storage); }
+      catch (err) { box.append(el("span", { class: "msg" }, err.message)); }
+    });
+    return b;
+  };
+  if (s.on) {
+    const since = s.since ? new Date(s.since * 1000).toLocaleDateString() : "";
+    let text = `In storage${since ? ` since ${since}` : ""}`;
+    if (s.until) text += s.due_passed ? `. It was due to end ${s.until}: back on the road?` : `, until ${s.until}`;
+    text += ". Gaps are expected; battery and temperature warnings stay on.";
+    box.append(el("span", {}, text));
+    if (signedIn) box.append(act("End storage", { on: false }));
+  } else if (s.suggest) {
+    box.append(el("span", {}, `${s.suggest} Is the van in storage?`));
+    if (signedIn) box.append(act("Yes, it's stored", { on: true }));
+  } else if (s.ended_reason && s.ended_reason.startsWith("drive") && s.changed_at &&
+             Date.now() / 1000 - s.changed_at < 86400) {
+    box.append(el("span", {}, `Storage ended when the van moved (${s.ended_reason.slice(7)}).`));
+  }
+  box.hidden = !box.children.length;
+}
+
 async function pollNow() {
+  getJSON("/storage").then(renderStorage).catch(() => {});
   try { renderNow(await getJSON("/now")); }
   catch (err) {
     // A box not set up yet has no database, so /now fails; say so, not "unreachable".
