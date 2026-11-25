@@ -42,6 +42,7 @@ from .mqtt_client import CerboMqtt
 from .publisher import Publisher
 from .solar import SolarState
 from .syncer import Syncer
+from . import healthreport as healthreport_mod
 from .govee_cloud import fetch as fetch_govee_cloud
 from .weather import fetch as fetch_weather
 
@@ -793,6 +794,11 @@ class Cerberus:
         self.ha.start()
         self.mqtt.start()
         self.syncer.start()
+        # Opt-in box health reports (off unless health_report.enabled).
+        self.health_reporter = healthreport_mod.Reporter(
+            self.cfg.health_report, self.db, device_id=self.ensure_device_id(),
+            db_path=self.cfg.storage.sqlite_path, tz=self.van_tz())
+        self.health_reporter.start()
         try:
             while not self.stop_evt.wait(LIVENESS_CHECK_PERIOD):
                 online = self._cerbo_online()
@@ -839,6 +845,7 @@ class Cerberus:
                     break
         finally:
             self.syncer.stop()
+            self.health_reporter.stop()
             if self.cloud is not None:
                 self.cloud.stop()
             self.mqtt.stop()

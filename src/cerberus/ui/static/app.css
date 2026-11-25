@@ -261,3 +261,12 @@ footer a { color: var(--text-2); }
 .victron-device td { overflow-wrap: anywhere; }
 .victron label.btn { display: inline-block; cursor: pointer; }
 
+
+/* Box health reports: the exact payload, readable and scrollable on a phone. */
+.health-report details { margin-top: 6px; }
+.health-report summary { cursor: pointer; font-size: 13px; }
+.health-report .payload {
+  font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: var(--page); border: 1px solid var(--grid, #e4e2dc); border-radius: 6px;
+  padding: 8px; margin: 6px 0 0; max-height: 320px; overflow: auto; white-space: pre;
+}

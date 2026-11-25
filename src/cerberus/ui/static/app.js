@@ -1231,7 +1231,38 @@ async function loadSettings() {
     renderBluetooth(d.signed_in);
     renderPhone(d.signed_in);
     renderVictron(d.signed_in);
+    getJSON("/health-report").then(renderHealthReport).catch(() => {});
   } catch (err) { console.error(err); }
+}
+
+// ------------------------------------------------------------ Box health reports
+
+// What the box sends about itself, when health reports are on, shown exactly.
+function renderHealthReport(h) {
+  const form = document.getElementById("settings-form");
+  if (!form || form.querySelector(".health-report")) return;
+  const card = el("section", { class: "card set-group health-report" });
+  card.append(el("h2", {}, "Box health reports"));
+  if (!h.enabled) {
+    card.append(el("p", { class: "help" },
+      "Off. Nothing about this box is sent anywhere. Turn on \"Send box health reports\" above to share it."));
+  } else {
+    const every = h.interval_s ? `every ${Math.round(h.interval_s / 60)} minutes` : "regularly";
+    card.append(el("p", { class: "help" },
+      `On: ${every} to ${h.target_host || "the configured address"}. Box health only: never readings or position.`));
+  }
+  const last = h.last;
+  if (last) {
+    const when = new Date(last.at * 1000).toLocaleString();
+    card.append(el("p", {}, last.ok ? `Last report: ${when}, delivered.` : `Last report: ${when}, not delivered (${last.result}).`));
+    const details = el("details", {});
+    details.append(el("summary", {}, "Exactly what was sent"),
+      el("pre", { class: "payload" }, JSON.stringify(last.payload, null, 2)));
+    card.append(details);
+  } else if (h.enabled) {
+    card.append(el("p", { class: "help" }, "No report sent yet. The first goes out about 30 seconds after the collector starts."));
+  }
+  form.append(card);
 }
 
 // ------------------------------------------------------------ First-run setup

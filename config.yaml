@@ -204,6 +204,15 @@ sync:
   batch_size: 500
   interval_seconds: 60
   request_timeout_seconds: 10
+health_report:
+  # Box health only (version, uptime, restarts, disk, memory, temperature, and
+  # each data source's freshness), never readings or position. Off by default;
+  # beta boxes turn it on under the beta agreement. See cerberus/healthreport.py.
+  enabled: false
+  target_url: ""              # https:// endpoint; http only for localhost
+  auth_token: ""              # Bearer token. Override with CERBERUS_HEALTH_TOKEN env.
+  interval_seconds: 900
+  request_timeout_seconds: 10
 ble:
   # Sidecar BLE collector for per-cell V/T and BMS-side state — runs as a
   # separate process from the main MQTT loop. See `python -m cerberus.ble`.
