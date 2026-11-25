@@ -22,7 +22,8 @@ cloud relay later):
                                   and what setup detection proposes for each
   GET  /api/v1/setup/detect       what the Cerbo reports, and the proposals (cerberus.detect,
                                   plus settings learned from history, cerberus.learn)
-  GET  /api/v1/access             addresses to open Cerberus at (Tailscale HTTPS, van LAN)
+  GET  /api/v1/access             the van-network address to open Cerberus at, the tailnet the box
+                                  is on, and whether support access is on (support: in config)
   GET  /api/v1/setup/status       set up yet?, the Cerbo connection (never the password)
   POST /api/v1/setup/discover     GX devices on the box's networks       } first-run
   POST /api/v1/setup/probe        {address, password} -> portal ID and   } setup
@@ -283,7 +284,8 @@ def make_handler(app: App):
             if ep == "about":
                 return self._about()
             if ep == "access":
-                return self._json(200, access.view(getattr(app, "port", 8088)))
+                return self._json(200, access.view(getattr(app, "port", 8088),
+                                                   support_cfg=self._support_cfg()))
             if ep == "victron/imports":
                 return self._victron_view()
             try:
@@ -303,7 +305,8 @@ def make_handler(app: App):
                     view = status.status_view(conn, int(time.time()), ctx.tz, notes=self._notes())
                     return self._json(200, {**view, "tz": ctx.tz_name})
                 if ep == "health":
-                    return self._json(200, health.health_view(conn, int(time.time()), ctx.tz))
+                    return self._json(200, {**health.health_view(conn, int(time.time()), ctx.tz),
+                                            "remote": access.remote(self._support_cfg())})
                 if ep == "health-report":
                     return self._json(200, self._health_report_view(conn))
                 if ep == "sync":
@@ -349,6 +352,14 @@ def make_handler(app: App):
                 except Exception:          # a config that doesn't load: show what was sent
                     pass
             return {"enabled": enabled, "target_host": host, "interval_s": interval, "last": last}
+
+        def _support_cfg(self):
+            if not app.config_path:
+                return None
+            try:
+                return cfg_mod.load(app.config_path).support
+            except Exception:              # not set up, or a config that doesn't load
+                return None
 
         def _sync_view(self, conn):
             """Van data sharing as the owner sees it: on or off, where to, what's waiting."""

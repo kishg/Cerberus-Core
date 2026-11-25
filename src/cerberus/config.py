@@ -80,6 +80,15 @@ HIGH_RATE_SYNC_TABLES = ("cell_samples", "pack_ble_samples", "obd_samples")
 
 
 @dataclass(frozen=True)
+class SupportConfig:
+    """Who provides support for this box, so Settings can say when support access is on
+    (Core #48). All optional; absent means nothing is shown."""
+    tailnet: str = ""          # the support provider's tailnet, e.g. example-support.ts.net
+    provider: str = ""         # their name, as the owner knows them
+    contact: str = ""          # how to reach them to end access
+
+
+@dataclass(frozen=True)
 class HealthReportConfig:
     """Opt-in box health reports (cerberus.healthreport). Off by default: the
     open core sends nothing unless this is configured."""
@@ -323,6 +332,16 @@ class Config:
     victron: VictronConfig = VictronConfig()
     inverter_idle: inverter_idle_mod.Settings = inverter_idle_mod.DEFAULT_SETTINGS
     health_report: HealthReportConfig = HealthReportConfig()
+    support: SupportConfig = SupportConfig()
+
+
+def _parse_support(raw: dict) -> SupportConfig:
+    s = raw.get("support") or {}
+    if not isinstance(s, dict):
+        raise ConfigError("support must be a section with tailnet, provider and contact.")
+    return SupportConfig(tailnet=str(s.get("tailnet") or "").strip(),
+                         provider=str(s.get("provider") or "").strip(),
+                         contact=str(s.get("contact") or "").strip())
 
 
 def _parse_sync_tables(value) -> tuple:
@@ -1064,4 +1083,5 @@ user_agent=str(w_raw.get("user_agent", DEFAULT_WEATHER_UA)).strip(),
         victron=_parse_victron(raw),
         inverter_idle=_parse_inverter_idle(raw),
         health_report=_parse_health_report(raw, store),
+        support=_parse_support(raw),
     )
