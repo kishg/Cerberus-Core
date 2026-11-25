@@ -19,6 +19,7 @@ from . import detect as detect_mod
 from . import detectors as detectors_mod
 from . import envfile
 from . import phonefix
+from . import storage as storage_mod
 from . import drives as drives_mod
 from . import heater as heater_mod
 from . import inverter_idle as inverter_idle_mod
@@ -67,6 +68,7 @@ SOLAR_PUBLISH_PERIOD = 5       # same for the solarcharger tree
 ARRAY_VOC_MARGIN = 1.25        # PV above array_voc_v by this much = misconfigured
 UPTIME_PERIOD = 300            # collector_uptime cadence; health reads it
 KV_DEVICE_ID = "device.id"     # stable box identity (pairing, sync, relay later)
+KV_STORAGE = "storage.state"    # on/off as last turned into an event (cerberus.storage)
 # A drive is only processed SETTLE_S (15 min) after it ends, so checking more
 # often than this buys nothing; each check is a few indexed queries.
 DRIVES_TICK_PERIOD = 300
@@ -480,10 +482,49 @@ class Cerberus:
             path = getattr(self, "config_path", None)
             ui = cfg_mod.load_ui(path) if path else cfg_mod.UiConfig()
             found = findings_mod.derive(self.db.conn, findings_mod.settings_for(ui, self.van_tz()), now)
+            if path:
+                # Stored: findings a stored van trips by design can't open (cerberus.storage).
+                open_keys = {r[0] for r in self.db.conn.execute(
+                    "SELECT key FROM finding_log WHERE cleared_ts IS NULL")}
+                found = storage_mod.quiet(found, open_keys, storage_mod.read(path))
             for what, num, key in findings_log_mod.sync(self.db.conn, found, now):
                 log.info("finding #%d %s: %s", num, what, key)
         except Exception:
             log.exception("findings log update failed")
+
+    def _storage_tick(self) -> None:
+        """Turn storage-mode changes into dated events, and end storage on a drive.
+
+        KV_STORAGE remembers what was last turned into events ("on:<since>" or "off:<since>"),
+        so each period is recorded once, with its real start and end times, even when it began
+        and ended while the collector wasn't watching (the box off, then a drive at boot)."""
+        path = getattr(self, "config_path", None)
+        now = int(time.time())
+        if not path or now - getattr(self, "last_storage_tick_ts", 0) < 30:
+            return
+        self.last_storage_tick_ts = now
+        try:
+            state = storage_mod.read(path)
+            if state.on:
+                why = phonefix.moving(self.db.conn, now, self.cfg.bank.charge_on_a)
+                if why:
+                    state = storage_mod.end(path, now, reason=f"drive: {why}", by="drive")
+                    log.info("storage mode ended: %s", why)
+            seen = self.db.get_kv(KV_STORAGE) or ""
+            mark = f"{'on' if state.on else 'off'}:{state.since}"
+            started = {"until": state.until, "online": state.online, "by": state.by}
+            ended = {"reason": state.ended_reason, "by": state.by}
+            if state.on and not seen.startswith("on:"):
+                self.db.insert_event(make_event("storage_started", Severity.INFO, started,
+                                                ts=state.since or now))
+            elif not state.on and state.since is not None and seen != mark:
+                if not seen.startswith("on:"):      # began and ended unwatched: record both
+                    self.db.insert_event(make_event("storage_started", Severity.INFO, started, ts=state.since))
+                self.db.insert_event(make_event("storage_ended", Severity.INFO, ended,
+                                                ts=state.changed_at or now))
+            self.db.set_kv(KV_STORAGE, mark)
+        except Exception:
+            log.exception("storage mode check failed")
 
     def van_tz(self):
         """The van's time zone for the nightly jobs: config, else GX, else host."""
@@ -847,6 +888,7 @@ class Cerberus:
                 self._snapshot_tick(online)
                 self._uptime_tick()
                 self._findings_tick()
+                self._storage_tick()
                 if self._config_changed():
                     break
         finally:

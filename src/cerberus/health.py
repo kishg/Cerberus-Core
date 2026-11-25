@@ -159,6 +159,11 @@ def _awake_frac(conn, a: int, b: int) -> float:
 
 def explain_gap(conn: sqlite3.Connection, a: int, b: int) -> dict:
     """Cause of a gap from a to b (b = when data resumed, or now)."""
+    from .storage import stored_during
+    if stored_during(conn, a, b, b) >= 0.5:
+        return {"cause": "storage", "title": "The van was in storage",
+                "explain": ("The owner had put the van in storage. Gaps while it's stored are "
+                            "expected: it may be offline, or have its batteries switched off.")}
     internet = max(_frac(conn, "weather_samples", "1 = 1", a, b, 900),
                    _frac(conn, "cabin_samples", "source = 'govee_cloud'", a, b, 300))
     # Absent on a database from a collector older than 2026-10-31.

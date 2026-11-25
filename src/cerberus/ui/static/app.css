@@ -270,3 +270,9 @@ footer a { color: var(--text-2); }
   background: var(--page); border: 1px solid var(--grid, #e4e2dc); border-radius: 6px;
   padding: 8px; margin: 6px 0 0; max-height: 320px; overflow: auto; white-space: pre;
 }
+
+/* Storage mode banner (cerberus.storage) */
+.storage-banner { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0;
+  padding: 8px 12px; border: 1px solid var(--grid); border-radius: 8px; background: var(--surface);
+  font-size: 14px; }
+.storage-banner .btn { padding: 4px 10px; font-size: 13px; }

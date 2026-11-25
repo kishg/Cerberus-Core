@@ -12,6 +12,8 @@ cloud relay later):
   GET  /api/v1/status             the 24 h status table and the owner's recent notes
                                   (cerberus.status; tools/status_report.py --url)
   GET  /api/v1/about              license, source link (AGPL-3.0 s.13), device id
+  GET  /api/v1/storage            storage mode: on/off, since, expected end, whether that has
+                                  passed, and a suggestion when the van looks stored (cerberus.storage)
   GET  /api/v1/sync               van data sharing: on/off, where to (host only), the tables,
                                   what's waiting per table, and the last pass (never the token)
   GET  /api/v1/health-report      opt-in box health reports: on/off, where to (host only),
@@ -32,6 +34,8 @@ cloud relay later):
                                   used for the van's only while it is with the van
                                   (cerberus.phonefix); needs a session
   POST /api/v1/settings           {"changes": {key: value}}; needs a session
+  POST /api/v1/storage            {"on": true, "until"?: "YYYY-MM-DD", "online"?: bool} or {"on": false};
+                                  needs a session
   POST /api/v1/inverter/on        {}: turn the inverter back on from charger-only
                                   (cerberus.inverter_idle); needs a session
   POST /api/v1/notes              {key, text, title, num?, kind?}: a note on a finding
@@ -84,7 +88,7 @@ from urllib.parse import parse_qs, quote, urlsplit
 
 from .. import config as cfg_mod
 from .. import blescan, detect, firstrun, health, learn, location, notes, phonefix, status
-from .. import healthreport, inverter_idle, service_log, syncer, victron_imports
+from .. import healthreport, inverter_idle, service_log, storage, syncer, victron_imports
 from .. import settings as settings_mod
 from . import access, api, auth
 
@@ -304,6 +308,12 @@ def make_handler(app: App):
                     return self._json(200, self._health_report_view(conn))
                 if ep == "sync":
                     return self._json(200, self._sync_view(conn))
+                if ep == "storage":
+                    if not app.config_path:
+                        return self._json(404, {"error": "storage mode unavailable"})
+                    now = int(time.time())
+                    return self._json(200, storage.view(conn, app.config_path, now,
+                                                        location.local(now, ctx.tz).date()))
                 if ep == "findings":
                     return self._json(200, api.findings_view(conn, ctx, notes=self._notes()))
                 if ep == "findings/log":
@@ -466,6 +476,23 @@ def make_handler(app: App):
                     if not app.sessions.valid(self._token()):
                         return self._json(401, {"error": "sign in (Settings) to import settings files"})
                     return self._victron_post(ep, body, addr)
+                if ep == "storage":
+                    if not app.sessions.valid(self._token()):
+                        return self._json(401, {"error": "enter the PIN to change storage mode"})
+                    now = int(time.time())
+                    try:
+                        if body.get("on") is True:
+                            st = storage.start(app.config_path, now, until=body.get("until"),
+                                               online=body.get("online") is True)
+                        elif body.get("on") is False:
+                            st = storage.end(app.config_path, now)
+                        else:
+                            return self._json(400, {"error": 'expected {"on": true|false}'})
+                    except storage.StorageError as err:
+                        return self._json(400, {"error": str(err)})
+                    log.info("storage mode %s from %s", "on" if st.on else "off", addr)
+                    return self._json(200, {"storage": storage.view(None, app.config_path, now,
+                                                                    location.local(now, None).date())})
                 if ep == "inverter/on":
                     if not app.sessions.valid(self._token()):
                         return self._json(401, {"error": "enter the PIN to turn the inverter on"})
@@ -558,6 +585,19 @@ def make_handler(app: App):
                 if path:
                     kind = phonefix.TAILSCALE_LOCAL
             why = None
+            if storage.read(app.config_path).on:
+                # Stored: a phone's position never moves the van unless the van is moving.
+                try:
+                    conn = connect_ro(app.db_path)
+                    try:
+                        why = phonefix.moving(conn, now, app.charge_on_a)
+                    finally:
+                        conn.close()
+                except sqlite3.Error:
+                    why = None
+                if not why:
+                    return self._json(200, {"accepted": False, "via": kind, "reason": (
+                        "The van is in storage, so this phone's position isn't used unless the van is moving.")})
             if kind == phonefix.TAILSCALE:
                 try:
                     conn = connect_ro(app.db_path)
