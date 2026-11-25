@@ -136,6 +136,12 @@ SETTINGS = (
     Setting("system.timezone", "Location", "Time zone",
             "An IANA zone such as America/Denver. Leave empty to follow the Cerbo's own "
             "setting.", "text", optional=True, getter=lambda c: c.timezone),
+    Setting("health_report.enabled", "Sharing", "Send box health reports",
+            "Every 15 minutes, send a short report on the box itself (version, uptime, "
+            "restarts, disk, memory, temperature, and whether each data source is "
+            "arriving) to the address in config.yaml. Never readings or position. "
+            "Shown in full below.",
+            "bool", getter=lambda c: c.health_report.enabled),
     Setting("ha_mqtt.enabled", "Home Assistant", "Publish to Home Assistant",
             "Optional: send readings, events and discovery to Home Assistant's MQTT "
             "broker, so they appear as HA entities. Cerberus's own screens don't need it.",

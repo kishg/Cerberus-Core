@@ -12,6 +12,8 @@ cloud relay later):
   GET  /api/v1/status             the 24 h status table and the owner's recent notes
                                   (cerberus.status; tools/status_report.py --url)
   GET  /api/v1/about              license, source link (AGPL-3.0 s.13), device id
+  GET  /api/v1/health-report      opt-in box health reports: on/off, where to (host only),
+                                  and the last attempt with its exact payload (never the token)
   GET  /api/v1/settings           editable settings, values and where they came from,
                                   and what setup detection proposes for each
   GET  /api/v1/setup/detect       what the Cerbo reports, and the proposals (cerberus.detect,
@@ -80,7 +82,7 @@ from urllib.parse import parse_qs, quote, urlsplit
 
 from .. import config as cfg_mod
 from .. import blescan, detect, firstrun, health, learn, location, notes, phonefix, status
-from .. import inverter_idle, service_log, victron_imports
+from .. import healthreport, inverter_idle, service_log, victron_imports
 from .. import settings as settings_mod
 from . import access, api, auth
 
@@ -296,6 +298,8 @@ def make_handler(app: App):
                     return self._json(200, {**view, "tz": ctx.tz_name})
                 if ep == "health":
                     return self._json(200, health.health_view(conn, int(time.time()), ctx.tz))
+                if ep == "health-report":
+                    return self._json(200, self._health_report_view(conn))
                 if ep == "findings":
                     return self._json(200, api.findings_view(conn, ctx, notes=self._notes()))
                 if ep == "findings/log":
@@ -312,6 +316,25 @@ def make_handler(app: App):
                 return self._json(503, {"error": f"database error: {err}"})
             finally:
                 conn.close()
+
+        def _health_report_view(self, conn):
+            """What the owner needs to see about health reports: whether they're on,
+            where they go, and the last one exactly as sent."""
+            row = conn.execute("SELECT value FROM kv WHERE key = ?",
+                               (healthreport.KV_LAST,)).fetchone()
+            try:
+                last = json.loads(row[0]) if row else None
+            except ValueError:
+                last = None
+            enabled, host, interval = False, None, None
+            if app.config_path:
+                try:
+                    hr = cfg_mod.load(app.config_path).health_report
+                    enabled, interval = hr.enabled, hr.interval_seconds
+                    host = urlsplit(hr.target_url).netloc or None
+                except Exception:          # a config that doesn't load: show what was sent
+                    pass
+            return {"enabled": enabled, "target_host": host, "interval_s": interval, "last": last}
 
         def _victron_view(self):
             if not app.config_path:

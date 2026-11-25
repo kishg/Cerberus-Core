@@ -65,6 +65,17 @@ class SyncConfig:
 
 
 @dataclass(frozen=True)
+class HealthReportConfig:
+    """Opt-in box health reports (cerberus.healthreport). Off by default: the
+    open core sends nothing unless this is configured."""
+    enabled: bool = False
+    target_url: str = ""
+    auth_token: str = ""
+    interval_seconds: int = 900
+    request_timeout_seconds: int = 10
+
+
+@dataclass(frozen=True)
 class BleConfig:
     enabled: bool
     pack_addresses: Mapping[int, str]
@@ -296,6 +307,29 @@ class Config:
     temperature_unit: str = "F"
     victron: VictronConfig = VictronConfig()
     inverter_idle: inverter_idle_mod.Settings = inverter_idle_mod.DEFAULT_SETTINGS
+    health_report: HealthReportConfig = HealthReportConfig()
+
+
+def _parse_health_report(raw: dict) -> HealthReportConfig:
+    """health_report: off unless enabled, with an https target (or a local one
+    for testing). The token is a secret: CERBERUS_HEALTH_TOKEN wins."""
+    h = raw.get("health_report") or {}
+    cfg = HealthReportConfig(
+        enabled=_parse_bool(h.get("enabled", False), "health_report.enabled"),
+        target_url=str(h.get("target_url") or "").strip(),
+        auth_token=os.environ.get("CERBERUS_HEALTH_TOKEN") or str(h.get("auth_token") or ""),
+        interval_seconds=int(h.get("interval_seconds", 900)),
+        request_timeout_seconds=int(h.get("request_timeout_seconds", 10)),
+    )
+    if cfg.interval_seconds < 60:
+        raise ConfigError("health_report.interval_seconds must be at least 60.")
+    if cfg.enabled:
+        if not cfg.target_url:
+            raise ConfigError("health_report.enabled is true but health_report.target_url is empty.")
+        local = re.match(r"http://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?/", cfg.target_url + "/")
+        if not (cfg.target_url.startswith("https://") or local):
+            raise ConfigError("health_report.target_url must be https:// (http only for localhost).")
+    return cfg
 
 
 TEMPERATURE_UNITS = ("F", "C")
@@ -983,4 +1017,5 @@ user_agent=str(w_raw.get("user_agent", DEFAULT_WEATHER_UA)).strip(),
         temperature_unit=_parse_temperature_unit(raw),
         victron=_parse_victron(raw),
         inverter_idle=_parse_inverter_idle(raw),
+        health_report=_parse_health_report(raw),
     )
