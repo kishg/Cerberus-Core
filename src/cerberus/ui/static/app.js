@@ -109,7 +109,7 @@ async function postJSON(path, body) {
   });
   let data = {};
   try { data = await r.json(); } catch (_) {}
-  if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+  if (!r.ok) { const e = new Error(data.error || `HTTP ${r.status}`); e.code = data.code; throw e; }
   return data;
 }
 
@@ -1399,16 +1399,23 @@ function renderWizard(signedIn) {
     try {
       const r = await postJSON("/setup/discover", {});
       const gx = r.candidates.filter((c) => c.gx);
+      const off = gx.filter((c) => c.mqtt === false);
       msg1.textContent = gx.length ? "" : (r.candidates.length
         ? "Found MQTT brokers but no Cerbo. Pick one if you're sure, or type the Cerbo's address."
         : "No Cerbo found. Check it's on the same network, then type its address.");
+      if (off.length && off.length === gx.length) {
+        msg1.className = "msg err";
+        msg1.textContent = `Found the Cerbo at ${off[0].address}, but MQTT is off on it. On the Cerbo, turn on ` +
+          "MQTT on LAN under Settings > Services (Settings > Integrations on newer firmware), then search again.";
+        search.textContent = "Search again";
+      }
       for (const c of (gx.length ? gx : r.candidates)) {
         const id = `cand-${c.address}`;
         const radio = el("input", { type: "radio", name: "cerbo", id, value: c.address });
         radio.addEventListener("change", () => { w.address = c.address; w.host = c.host; manual.value = ""; });
         const text = c.host === c.address ? c.address : `${c.host} (${c.address})`;
         list.append(el("label", { class: "cand", for: id }, ""));
-        list.lastChild.append(radio, document.createTextNode(` ${text}${c.gx ? " · Victron GX" : ""}`));
+        list.lastChild.append(radio, document.createTextNode(` ${text}${c.gx ? " · Victron GX" : ""}${c.mqtt === false ? " · MQTT is off" : ""}`));
       }
       const first = list.querySelector("input");
       if (first && gx.length) { first.checked = true; first.dispatchEvent(new Event("change")); }
@@ -1440,7 +1447,15 @@ function renderWizard(signedIn) {
       msg2.className = "msg trust"; msg2.replaceChildren();
       statusLine(msg2, "good", `Connected to Cerbo ${r.portal_id}.`);
       renderReview(s3, r, w, pw);
-    } catch (err) { msg2.className = "msg err"; msg2.textContent = err.message; }
+    } catch (err) {
+      msg2.className = "msg err"; msg2.textContent = err.message;
+      // Something to fix on the Cerbo: say so, and offer to try again once it's done.
+      if (["mqtt_off", "no_data", "unreachable"].includes(err.code)) {
+        const again = el("button", { type: "button", class: "btn quiet" }, "Check again");
+        again.addEventListener("click", () => connect.click());
+        msg2.append(" ", again);
+      }
+    }
   });
   card.append(s1, s2, s3);
 }

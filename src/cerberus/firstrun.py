@@ -48,7 +48,22 @@ SETTLE_S = 2.5
 
 
 class SetupError(Exception):
-    pass
+    """A setup step failed. ``code`` lets the wizard react (mqtt_off, password, no_data, unreachable)."""
+
+    def __init__(self, message: str, code: str = ""):
+        super().__init__(message)
+        self.code = code
+
+
+WEB_PORT = 80
+# The likeliest first-install failure, and how each case reads to the owner (Core #39).
+MQTT_OFF = ("{host} is a Victron GX, but MQTT is off on it. On the GX, turn on MQTT on LAN under "
+            "Settings > Services (Settings > Integrations on newer firmware), then check again.")
+WRONG_PASSWORD = ("Wrong password. Use the Cerbo's Remote Console password "
+                  "(Settings > General > Access level / Security on the GX).")
+NO_DATA = ("{host} accepted the connection but sent nothing. Check that plain MQTT on LAN is on "
+           "(not only the SSL one), and that the GX's security profile lets local MQTT clients read "
+           "(Settings > General > Security profile on newer firmware).")
 
 
 # ------------------------------------------------------------------- discovery
@@ -103,23 +118,41 @@ def resolve(name: str) -> str | None:
         return None
 
 
+def web_open(host: str) -> bool:
+    return port_open(host, WEB_PORT)
+
+
 def discover(networks=None, port_check=port_open, gx_check=looks_like_gx,
-             resolver=resolve) -> list[dict]:
-    """GX candidates, most likely first: {host, address, gx}."""
+             resolver=resolve, web_check=web_open) -> list[dict]:
+    """GX candidates, most likely first: {host, address, gx, mqtt}.
+
+    A GX with MQTT switched off has no open MQTT port, so it is also looked for by its web
+    page: a host with port 80 open that serves the Victron page is a GX, ``mqtt`` False. The
+    wizard then says MQTT is off instead of "no Cerbo found"."""
     found: dict[str, dict] = {}
     mdns = resolver(MDNS_NAME)
-    if mdns and port_check(mdns):
-        found[mdns] = {"host": MDNS_NAME, "address": mdns}
+    if mdns:
+        if port_check(mdns):
+            found[mdns] = {"host": MDNS_NAME, "address": mdns, "mqtt": True}
+        elif web_check(mdns):
+            found[mdns] = {"host": MDNS_NAME, "address": mdns, "mqtt": False}
     nets = local_networks() if networks is None else networks
     hosts = [str(h) for n in nets for h in n.hosts()]
     with concurrent.futures.ThreadPoolExecutor(max_workers=64) as pool:
-        for h, ok in zip(hosts, pool.map(port_check, hosts)):
-            if ok and h not in found:
-                found[h] = {"host": h, "address": h}
+        mqtt_open = dict(zip(hosts, pool.map(port_check, hosts)))
+        web_only = [h for h in hosts if not mqtt_open[h] and h not in found]
+        web = dict(zip(web_only, pool.map(web_check, web_only)))
+    for h in hosts:
+        if mqtt_open[h] and h not in found:
+            found[h] = {"host": h, "address": h, "mqtt": True}
     out = list(found.values())
     for c in out:
         c["gx"] = gx_check(c["address"])
-    out.sort(key=lambda c: (not c["gx"], c["host"] != MDNS_NAME, c["address"]))
+    # Web-only hosts count only if they really are a GX (routers and printers serve pages too).
+    for h, ok in web.items():
+        if ok and h not in found and gx_check(h):
+            out.append({"host": h, "address": h, "mqtt": False, "gx": True})
+    out.sort(key=lambda c: (not c["gx"], not c["mqtt"], c["host"] != MDNS_NAME, c["address"]))
     return out
 
 
@@ -170,8 +203,10 @@ class Probe:
                 "proposals": props, "notes": notes}
 
 
-def probe(address: str, password: str, timeout: float = PROBE_TIMEOUT_S) -> dict:
-    """Connect to the GX with the owner's password and see what it reports."""
+def probe(address: str, password: str, timeout: float = PROBE_TIMEOUT_S,
+          gx_check=looks_like_gx) -> dict:
+    """Connect to the GX with the owner's password and see what it reports. Each way it can
+    fail has its own message and SetupError code (Core #39)."""
     import paho.mqtt.client as mqtt
 
     p = Probe()
@@ -203,17 +238,16 @@ def probe(address: str, password: str, timeout: float = PROBE_TIMEOUT_S) -> dict
     try:
         c.connect(address, MQTT_PORT, keepalive=30)
     except OSError as err:
-        raise SetupError(f"Couldn't reach {address}: {err}") from None
+        if gx_check(address):
+            raise SetupError(MQTT_OFF.format(host=address), "mqtt_off") from None
+        raise SetupError(f"Couldn't reach {address}: {err}", "unreachable") from None
     c.loop_start()
     try:
         if not connected.wait(min(timeout, 8)):
-            raise SetupError(f"{address} didn't answer as an MQTT broker.")
+            raise SetupError(f"{address} didn't answer as an MQTT broker.", "unreachable")
         rc = state["rc"]
         if rc.is_failure:
-            if "authori" in str(rc).lower() or "password" in str(rc).lower():
-                raise SetupError("Wrong password. Use the Cerbo's Remote Console password "
-                                 "(Settings > General > Access level / Security on the GX).")
-            raise SetupError(f"The Cerbo refused the connection: {rc}")
+            raise refused(rc)
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline and not p.done():
             time.sleep(0.2)
@@ -221,9 +255,16 @@ def probe(address: str, password: str, timeout: float = PROBE_TIMEOUT_S) -> dict
         c.loop_stop()
         c.disconnect()
     if not p.portal_id:
-        raise SetupError(f"{address} accepted the password but didn't identify itself as a "
-                         "Victron GX (no portal ID). Check MQTT on LAN is enabled on the GX.")
+        raise SetupError(NO_DATA.format(host=address), "no_data")
     return p.result()
+
+
+def refused(rc) -> SetupError:
+    """The GX refused the MQTT connection: a wrong password, or something else said plainly."""
+    text = str(rc).lower()
+    if "authori" in text or "password" in text or "credentials" in text:
+        return SetupError(WRONG_PASSWORD, "password")
+    return SetupError(f"The Cerbo refused the connection: {rc}", "refused")
 
 
 # -------------------------------------------------------------------- complete
