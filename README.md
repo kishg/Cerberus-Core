@@ -2,9 +2,11 @@
 
 [![tests](https://github.com/kishg/Cerberus-Core/actions/workflows/tests.yml/badge.svg)](https://github.com/kishg/Cerberus-Core/actions/workflows/tests.yml)
 
-Open-source monitoring for the electrical system of a camper van or RV. It
-runs on a small computer in the van, records everything the system reports,
-and tells the owner in plain words what is wrong, why, and what to check.
+Open-source monitoring for the electrical system of an overland vehicle: a
+camper van, RV, truck camper or expedition truck. It is the open core of
+Cerberus Overland. It runs on a small computer in the vehicle, records
+everything the system reports, and tells the owner in plain words what is
+wrong, why, and what to check.
 
 - **Collects** live data from a Victron GX (Cerbo) over MQTT: batteries,
   solar, inverter/charger, temperature sensors. It also reads Lithionics
