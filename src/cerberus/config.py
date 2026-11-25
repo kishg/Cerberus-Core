@@ -62,6 +62,21 @@ class SyncConfig:
     batch_size: int
     interval_seconds: int
     request_timeout_seconds: int
+    # What to send (Core #43). The default is what sync always sent; BETA_SYNC_TABLES is the beta set.
+    tables: tuple = ("battery_samples", "events")
+    # Positions never leave the box unless this is on (weather's lat/lon, and any lat/lon in JSON).
+    share_position: bool = False
+    # Events and findings go out this often, ahead of everything else.
+    prompt_seconds: int = 30
+    # A metered link (a phone plan, roaming): samples go 4x less often and high-rate tables wait.
+    metered: bool = False
+
+
+# The beta's opt-in set (beta agreement): findings and events first, then the data detectors and
+# Co-Pilot need. High-rate tables (cell_samples, pack_ble_samples) stay on the box unless added.
+BETA_SYNC_TABLES = ("events", "finding_log", "battery_samples", "solar_samples", "solar_days", "drives",
+                    "ac_samples", "cabin_samples", "temperature_samples", "device_settings", "weather_samples")
+HIGH_RATE_SYNC_TABLES = ("cell_samples", "pack_ble_samples", "obd_samples")
 
 
 @dataclass(frozen=True)
@@ -308,6 +323,22 @@ class Config:
     victron: VictronConfig = VictronConfig()
     inverter_idle: inverter_idle_mod.Settings = inverter_idle_mod.DEFAULT_SETTINGS
     health_report: HealthReportConfig = HealthReportConfig()
+
+
+def _parse_sync_tables(value) -> tuple:
+    """sync.tables: a list of table names, or "beta" for the beta's opt-in set."""
+    from .db import Db
+    if value is None:
+        return ("battery_samples", "events")
+    if value == "beta":
+        return BETA_SYNC_TABLES
+    if not isinstance(value, list) or not value:
+        raise ConfigError('sync.tables must be a list of table names, or "beta".')
+    unknown = [t for t in value if t not in Db.SYNC_KEYS]
+    if unknown:
+        raise ConfigError(f"sync.tables: can't sync {', '.join(map(str, unknown))} "
+                          f"(syncable: {', '.join(Db.SYNC_KEYS)}).")
+    return tuple(dict.fromkeys(str(t) for t in value))
 
 
 def _parse_health_report(raw: dict) -> HealthReportConfig:
@@ -830,9 +861,15 @@ def from_raw(raw: dict, password: str | None = None) -> Config:
         batch_size=int(sync_raw.get("batch_size", 500)),
         interval_seconds=int(sync_raw.get("interval_seconds", 60)),
         request_timeout_seconds=int(sync_raw.get("request_timeout_seconds", 10)),
+        tables=_parse_sync_tables(sync_raw.get("tables")),
+        share_position=_parse_bool(sync_raw.get("share_position", False), "sync.share_position"),
+        prompt_seconds=int(sync_raw.get("prompt_seconds", 30)),
+        metered=_parse_bool(sync_raw.get("metered", False), "sync.metered"),
     )
     if sync.enabled and not sync.target_url:
         raise ConfigError("sync.enabled is true but sync.target_url is empty.")
+    if sync.prompt_seconds < 5 or sync.interval_seconds < 5:
+        raise ConfigError("sync.prompt_seconds and sync.interval_seconds must be at least 5.")
 
     bank = _parse_bank(raw)
     packs = _parse_packs(raw)

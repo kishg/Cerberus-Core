@@ -437,6 +437,27 @@ class Db:
         for col, kind in (("lat", "REAL"), ("lon", "REAL"), ("position_source", "TEXT")):
             if col not in wx_cols:
                 self.conn.execute(f"ALTER TABLE weather_samples ADD COLUMN {col} {kind}")
+        # finding_log rows change after they're written (cleared, escalated), so sync can't follow
+        # them by rowid. sync_seq goes up on every insert and on every change that matters
+        # (severity, clearing, title), never on the per-tick last_seen/explain refresh. Added for
+        # Core #43; existing rows are numbered in order once.
+        fl_cols = {r[1] for r in self.conn.execute("PRAGMA table_info(finding_log)")}
+        if "sync_seq" not in fl_cols:
+            self.conn.execute("ALTER TABLE finding_log ADD COLUMN sync_seq INTEGER")
+            self.conn.execute("UPDATE finding_log SET sync_seq = num WHERE sync_seq IS NULL")
+        self.conn.executescript("""
+            CREATE TRIGGER IF NOT EXISTS finding_log_seq_insert AFTER INSERT ON finding_log
+            BEGIN
+              UPDATE finding_log SET sync_seq = (SELECT COALESCE(MAX(sync_seq), 0) + 1 FROM finding_log)
+              WHERE num = NEW.num;
+            END;
+            CREATE TRIGGER IF NOT EXISTS finding_log_seq_change AFTER UPDATE OF severity, cleared_ts, title ON finding_log
+            WHEN OLD.severity IS NOT NEW.severity OR OLD.cleared_ts IS NOT NEW.cleared_ts OR OLD.title IS NOT NEW.title
+            BEGIN
+              UPDATE finding_log SET sync_seq = (SELECT COALESCE(MAX(sync_seq), 0) + 1 FROM finding_log)
+              WHERE num = NEW.num;
+            END;
+        """)
 
     def close(self) -> None:
         with self._conns_lock:
@@ -946,7 +967,31 @@ class Db:
 
     # ---- sync-state helpers (M3) ------------------------------------------
 
-    _SYNC_TABLES = ("battery_samples", "events")
+    # Every table sync may send, with the columns a receiver upserts on. Re-sends are harmless:
+    # the same key replaces the same row. events has no key of its own, so its rowid (stable:
+    # events are never deleted) is the key, with the box's device ID on the receiving side.
+    SYNC_KEYS = {
+        "battery_samples": ("ts", "pack_id"),
+        "events": ("rowid",),
+        "finding_log": ("num",),
+        "solar_samples": ("ts",),
+        "solar_days": ("day",),
+        "drives": ("start_ts",),
+        "cabin_samples": ("ts", "sensor"),
+        "device_settings": ("path", "ts"),
+        "ac_samples": ("ts",),
+        "temperature_samples": ("ts", "instance"),
+        "weather_samples": ("ts",),
+        "acr_samples": ("ts",),
+        "engine_samples": ("ts",),
+        "vehicle_samples": ("ts", "source", "name"),
+        "obd_samples": ("ts", "ecu", "name"),
+        "cell_samples": ("ts", "pack_id", "cell_idx"),
+        "pack_ble_samples": ("ts", "pack_id"),
+    }
+    _SYNC_TABLES = tuple(SYNC_KEYS)
+    # Tables whose rows change after they're written: followed by a change counter, not rowid.
+    _SYNC_CURSOR = {"finding_log": "sync_seq"}
 
     def get_last_synced(self, table: str) -> int:
         if table not in self._SYNC_TABLES:
@@ -969,22 +1014,53 @@ class Db:
             log.error("sync_state set failed for %s: %s", table, e)
 
     def fetch_since(self, table: str, last_rowid: int, limit: int) -> list[tuple[int, dict]]:
-        """Return up to `limit` rows from `table` with rowid > last_rowid, ordered
-        by rowid. Each element is (rowid, dict). The dict shape matches the
-        column names of the table — used directly as the sync payload."""
+        """Return up to `limit` rows from `table` past the cursor, in cursor order. Each element
+        is (cursor value, dict). The cursor is the rowid, or the table's change counter
+        (_SYNC_CURSOR). The dict holds the table's columns; events also carry their rowid,
+        which is their key."""
         if table not in self._SYNC_TABLES:
             raise ValueError(f"unsupported sync table: {table}")
+        cursor = self._SYNC_CURSOR.get(table, "rowid")
         cur = self.conn.execute(
-            f"SELECT rowid, * FROM {table} WHERE rowid > ? ORDER BY rowid LIMIT ?",
+            f"SELECT {cursor} AS _cursor, rowid AS _rowid, * FROM {table} "
+            f"WHERE {cursor} > ? ORDER BY {cursor} LIMIT ?",
             (last_rowid, limit),
         )
         cols = [c[0] for c in cur.description]
         out: list[tuple[int, dict]] = []
         for row in cur.fetchall():
             d = dict(zip(cols, row))
-            rid = int(d.pop("rowid"))
+            rid = int(d.pop("_cursor"))
+            rowid = d.pop("_rowid")
+            d.pop("sync_seq", None)
+            if "rowid" in self.SYNC_KEYS[table]:
+                d["rowid"] = rowid
             out.append((rid, d))
         return out
+
+    def sync_waiting(self, table: str, last: int) -> tuple[int, int | None]:
+        """(rows past the cursor, the oldest waiting row's ts if the table has one)."""
+        return sync_waiting(self.conn, table, last)
+
+
+def sync_waiting(conn: sqlite3.Connection, table: str, last: int) -> tuple[int, int | None]:
+    """Rows of a synced table past its cursor, and the oldest one's time. Works on a read-only
+    connection too (the UI's)."""
+    if table not in Db.SYNC_KEYS:
+        raise ValueError(f"unsupported sync table: {table}")
+    cursor = Db._SYNC_CURSOR.get(table, "rowid")
+    n = conn.execute(f"SELECT COUNT(*) FROM {table} WHERE {cursor} > ?", (last,)).fetchone()[0]
+    cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+    ts_col = next((c for c in ("ts", "start_ts", "opened_ts", "created_ts") if c in cols), None)
+    oldest = None
+    if n and ts_col:
+        oldest = conn.execute(f"SELECT MIN({ts_col}) FROM {table} WHERE {cursor} > ?", (last,)).fetchone()[0]
+    return int(n), oldest
+
+
+def sync_cursor(conn: sqlite3.Connection, table: str) -> int:
+    row = conn.execute("SELECT last_synced_rowid FROM sync_state WHERE table_name = ?", (table,)).fetchone()
+    return int(row[0]) if row else 0
 
 
 class _DbKv:

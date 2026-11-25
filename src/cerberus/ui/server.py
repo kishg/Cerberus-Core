@@ -12,6 +12,8 @@ cloud relay later):
   GET  /api/v1/status             the 24 h status table and the owner's recent notes
                                   (cerberus.status; tools/status_report.py --url)
   GET  /api/v1/about              license, source link (AGPL-3.0 s.13), device id
+  GET  /api/v1/sync               van data sharing: on/off, where to (host only), the tables,
+                                  what's waiting per table, and the last pass (never the token)
   GET  /api/v1/health-report      opt-in box health reports: on/off, where to (host only),
                                   and the last attempt with its exact payload (never the token)
   GET  /api/v1/settings           editable settings, values and where they came from,
@@ -82,7 +84,7 @@ from urllib.parse import parse_qs, quote, urlsplit
 
 from .. import config as cfg_mod
 from .. import blescan, detect, firstrun, health, learn, location, notes, phonefix, status
-from .. import healthreport, inverter_idle, service_log, victron_imports
+from .. import healthreport, inverter_idle, service_log, syncer, victron_imports
 from .. import settings as settings_mod
 from . import access, api, auth
 
@@ -300,6 +302,8 @@ def make_handler(app: App):
                     return self._json(200, health.health_view(conn, int(time.time()), ctx.tz))
                 if ep == "health-report":
                     return self._json(200, self._health_report_view(conn))
+                if ep == "sync":
+                    return self._json(200, self._sync_view(conn))
                 if ep == "findings":
                     return self._json(200, api.findings_view(conn, ctx, notes=self._notes()))
                 if ep == "findings/log":
@@ -335,6 +339,25 @@ def make_handler(app: App):
                 except Exception:          # a config that doesn't load: show what was sent
                     pass
             return {"enabled": enabled, "target_host": host, "interval_s": interval, "last": last}
+
+        def _sync_view(self, conn):
+            """Van data sharing as the owner sees it: on or off, where to, what's waiting."""
+            sc = None
+            if app.config_path:
+                try:
+                    sc = cfg_mod.load(app.config_path).sync
+                except Exception:          # a config that doesn't load: say so, show nothing waiting
+                    pass
+            if sc is None:
+                return {"enabled": False, "target_host": None, "tables": [], "waiting": [], "last": None}
+            row = conn.execute("SELECT value FROM kv WHERE key = ?", (syncer.KV_LAST,)).fetchone()
+            try:
+                last = json.loads(row[0]) if row else None
+            except ValueError:
+                last = None
+            return {"enabled": sc.enabled, "target_host": urlsplit(sc.target_url).netloc or None,
+                    "tables": list(sc.tables), "share_position": sc.share_position, "metered": sc.metered,
+                    "waiting": syncer.backlog(conn, sc), "last": last}
 
         def _victron_view(self):
             if not app.config_path:

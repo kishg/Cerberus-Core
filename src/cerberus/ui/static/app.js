@@ -1231,8 +1231,55 @@ async function loadSettings() {
     renderBluetooth(d.signed_in);
     renderPhone(d.signed_in);
     renderVictron(d.signed_in);
-    getJSON("/health-report").then(renderHealthReport).catch(() => {});
+    getJSON("/sync").then(renderSync).catch(() => {}).then(() => getJSON("/health-report")).then(renderHealthReport).catch(() => {});
   } catch (err) { console.error(err); }
+}
+
+// ------------------------------------------------------------ Van data sharing
+
+const SYNC_LABEL = { events: "Events", finding_log: "Findings", battery_samples: "Batteries",
+  solar_samples: "Solar", solar_days: "Solar days", drives: "Drives", ac_samples: "Inverter",
+  cabin_samples: "Cabin", temperature_samples: "Temperature probes", device_settings: "Device settings",
+  weather_samples: "Weather", acr_samples: "Charge relay", engine_samples: "Engine",
+  vehicle_samples: "Vehicle", obd_samples: "OBD", cell_samples: "Cell voltages", pack_ble_samples: "Battery Bluetooth" };
+
+function sinceText(ts) {
+  if (!ts) return "";
+  const h = (Date.now() / 1000 - ts) / 3600;
+  return h < 1 ? "under an hour old" : h < 48 ? `${Math.round(h)} h old` : `${Math.round(h / 24)} days old`;
+}
+
+// What van data leaves the box, what's still waiting, and the last pass.
+function renderSync(d) {
+  const form = document.getElementById("settings-form");
+  if (!form || form.querySelector(".sync")) return;
+  const card = el("section", { class: "card set-group sync" });
+  card.append(el("h2", {}, "Sharing van data"));
+  if (!d.enabled) {
+    card.append(el("p", { class: "help" }, "Off. No van data leaves the box."));
+    form.append(card);
+    return;
+  }
+  card.append(el("p", { class: "help" },
+    `On: to ${d.target_host || "the configured address"}. Positions ${d.share_position ? "are included" : "stay on the box"}.` +
+    (d.metered ? " Metered connection: readings go less often, high-rate data waits." : "")));
+  const last = d.last;
+  if (last && last.at) {
+    const sent = Object.entries(last.sent || {}).map(([t, n]) => `${SYNC_LABEL[t] || t} ${n}`).join(", ");
+    card.append(el("p", {}, last.ok
+      ? `Last sent ${new Date(last.at * 1000).toLocaleString()}${sent ? `: ${sent}` : ""}.`
+      : `Last try ${new Date(last.at * 1000).toLocaleString()} didn't get through (${last.result}). Nothing is lost: it retries.`));
+  }
+  const rows = (d.waiting || []).map((w) => {
+    const r = el("div", { class: "set-row" }), head = el("div", { class: "set-head" });
+    head.append(el("span", { class: "name" }, SYNC_LABEL[w.table] || w.table),
+      el("span", { class: "val" }, w.held ? `${w.waiting} waiting (held: metered)` :
+        w.waiting ? `${w.waiting} waiting, ${sinceText(w.oldest_ts)}` : "up to date"));
+    r.append(head);
+    return r;
+  });
+  card.append(...rows);
+  form.append(card);
 }
 
 // ------------------------------------------------------------ Box health reports

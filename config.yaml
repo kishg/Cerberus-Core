@@ -202,8 +202,12 @@ sync:
   target_url: ""              # HTTPS POST endpoint accepting JSON {"table": ..., "rows": [...]}
   auth_token: ""              # optional Bearer token. Override with CERBERUS_SYNC_TOKEN env.
   batch_size: 500
-  interval_seconds: 60
+  interval_seconds: 60        # samples: one batch per table each interval (the rate cap)
   request_timeout_seconds: 10
+  tables: [battery_samples, events]   # or "beta" for the beta set (config.BETA_SYNC_TABLES)
+  share_position: false       # positions never leave the box unless this is on
+  prompt_seconds: 30          # events and findings go out this often, first
+  metered: false              # phone plan or roaming: samples 4x less often, high-rate tables wait
 health_report:
   # Box health only (version, uptime, restarts, disk, memory, temperature, and
   # each data source's freshness), never readings or position. Off by default;
