@@ -136,6 +136,19 @@ SETTINGS = (
     Setting("system.timezone", "Location", "Time zone",
             "An IANA zone such as America/Denver. Leave empty to follow the Cerbo's own "
             "setting.", "text", optional=True, getter=lambda c: c.timezone),
+    Setting("sync.enabled", "Sharing", "Share van data",
+            "Send the tables listed in config.yaml (sync.tables) to the address there: events and "
+            "findings first, then readings, oldest first. Nothing is deleted on the box, and positions "
+            "stay on it unless the next setting is on. Shown below: what's waiting and what was sent.",
+            "bool", getter=lambda c: c.sync.enabled),
+    Setting("sync.share_position", "Sharing", "Include positions",
+            "Off: no position ever leaves the box (the weather's location is removed, and so is any "
+            "position inside a row). On: positions are sent with the data.",
+            "bool", getter=lambda c: c.sync.share_position),
+    Setting("sync.metered", "Sharing", "Metered connection",
+            "On a phone plan or roaming: readings go four times less often, and high-rate data "
+            "(cell voltages, raw Bluetooth, OBD) waits until this is off. Events and findings still go first.",
+            "bool", getter=lambda c: c.sync.metered),
     Setting("health_report.enabled", "Sharing", "Send box health reports",
             "Every 15 minutes, send a short report on the box itself (version, uptime, "
             "restarts, disk, memory, temperature, and whether each data source is "

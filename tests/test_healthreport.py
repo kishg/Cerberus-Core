@@ -78,8 +78,8 @@ def _seed(db: Db) -> None:
         c.execute("INSERT INTO battery_samples (pack_id, ts, soc, voltage, current, power, source) "
                   "VALUES (1, ?, 87.5, 13.31, -4.2, -55.9, 'mqtt')", (NOW - 600 + 30 * i,))
     c.execute("INSERT INTO weather_samples (ts, air_temp_f, lat, lon, position_source) "
-              "VALUES (?, 40.1, 40.8621, -74.4117, 'gps')", (NOW - 300,))
-    c.execute("INSERT INTO kv (key, value) VALUES ('van.position', '{\"lat\": 40.8621, \"lon\": -74.4117}')")
+              "VALUES (?, 40.1, 12.3456, -98.7654, 'gps')", (NOW - 300,))
+    c.execute("INSERT INTO kv (key, value) VALUES ('van.position', '{\"lat\": 12.3456, \"lon\": -98.7654}')")
     for ts in range(NOW - 3600, NOW, 300):
         db.mark_uptime(ts)
     c.execute("INSERT INTO events (ts, type, severity, detail) VALUES (?, 'collector_started', 'info', '{}')",
@@ -100,7 +100,7 @@ def test_report_is_box_health_only(db, tmp_path):
     r = _report(db, tmp_path)
     assert set(_paths(r)) <= ALLOWED, set(_paths(r)) - ALLOWED
     text = json.dumps(r)
-    for leak in ("40.86", "-74.41", "lat", "lon", "13.31", "87.5", "-4.2", "soc", "voltage"):
+    for leak in ("12.34", "-98.76", "lat", "lon", "13.31", "87.5", "-4.2", "soc", "voltage"):
         assert leak not in text, leak
     assert r["format"] == "cerberus.health" and r["version"] == 1
     assert r["box"]["id"] == DEVICE
