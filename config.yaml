@@ -208,6 +208,13 @@ sync:
   share_position: false       # positions never leave the box unless this is on
   prompt_seconds: 30          # events and findings go out this often, first
   metered: false              # phone plan or roaming: samples 4x less often, high-rate tables wait
+support:
+  # Optional. Who supports this box, so Settings can say plainly when support
+  # access is on: when the box is logged in to this tailnet, Settings shows
+  # "Support access: on", the provider and how to end it. Absent: nothing shown.
+  tailnet: ""                 # the provider's tailnet, e.g. example-support.ts.net
+  provider: ""
+  contact: ""
 health_report:
   # Box health only (version, uptime, restarts, disk, memory, temperature, and
   # each data source's freshness), never readings or position. Off by default;

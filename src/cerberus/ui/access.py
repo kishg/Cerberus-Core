@@ -1,15 +1,18 @@
-"""Where to open Cerberus from: the addresses the Settings screen offers to copy.
+"""Where to open Cerberus from, and who else can reach the box.
 
-* **Tailscale HTTPS:** the box's MagicDNS name, when `tailscale serve`
-  proxies HTTPS to this UI. It is the address a phone needs for location
-  sharing (browsers share location only over HTTPS), and it works from
-  anywhere on the owner's tailnet.
 * **Van network:** http://<LAN address>:<port>, for anything on the van's
-  network.
+  network. The only address Settings offers: remote access is a Cerberus
+  Cloud feature, and an owner's own VPN is their setup, not Cerberus's
+  (Core #52). So Settings no longer offers a Tailscale address.
+* **Support access (Core #48):** when the box is logged in to a tailnet,
+  Settings says which one, and when that is the support provider's tailnet
+  (``support.tailnet`` in config), says plainly that support access is on, who
+  has it, and how to end it. Owner-visible support access is a rule of the
+  plan, not a nicety. The UI never logs Tailscale in or out.
 
-Read from the Tailscale CLI (`tailscale status --json` and `tailscale serve
-status --json`, both read-only), cached for a minute. No Tailscale, or not
-logged in, simply means no Tailscale address.
+Tailscale is read only through ``tailscale status --json`` (read-only), cached
+for a minute. No Tailscale, or not logged in, means nothing to show.
+``peer_on_lan`` stays for phone location until the rest of #52.
 """
 
 from __future__ import annotations
@@ -55,23 +58,31 @@ def _json(cmd: list[str]) -> dict | None:
         return None
 
 
-def tailscale_https(port: int, status: dict | None, serve: dict | None) -> dict | None:
-    """{name, url, serving} from the two CLI outputs, or None without Tailscale."""
+def tailnet(status: dict | None) -> dict | None:
+    """{tailnet, name} the box is logged in to, or None."""
     if not status or status.get("BackendState") != "Running":
         return None
     name = str((status.get("Self") or {}).get("DNSName") or "").rstrip(".")
-    if not name:
+    current = status.get("CurrentTailnet") or {}
+    net = str(current.get("Name") or "").strip()
+    if not net and name.count(".") >= 3:
+        net = name.split(".", 1)[1]                   # box.tail1234.ts.net -> tail1234.ts.net
+    if not (net or name):
         return None
-    serving = False
-    for host, web in ((serve or {}).get("Web") or {}).items():
-        if not host.startswith(name):
-            continue
-        for handler in (web.get("Handlers") or {}).values():
-            proxy = str(handler.get("Proxy") or "")
-            if proxy.rstrip("/").endswith(f":{port}"):
-                serving = True
-    return {"name": name, "url": f"https://{name}/" if serving else None, "serving": serving,
-            "command": None if serving else f"tailscale serve --bg {port}"}
+    return {"tailnet": net or None, "name": name or None}
+
+
+def support(on: dict | None, cfg) -> dict | None:
+    """Support access, when the box is on the configured support tailnet; else None."""
+    want = str(getattr(cfg, "tailnet", "") or "").strip().lower() if cfg else ""
+    if not on or not want:
+        return None
+    here = {str(on.get("tailnet") or "").lower(), str(on.get("name") or "").lower()}
+    if not any(h == want or h.endswith("." + want) for h in here if h):
+        return None
+    return {"on": True, "provider": getattr(cfg, "provider", "") or None,
+            "contact": getattr(cfg, "contact", "") or None,
+            "end": "Ask the provider to end it, or run `sudo tailscale logout` on the box."}
 
 
 def peer_on_lan(peer_ip: str, networks=None, status: dict | None = None) -> str | None:
@@ -108,16 +119,23 @@ def lan_url(port: int) -> str | None:
     return None if ip.startswith("127.") else f"http://{ip}:{port}/"
 
 
-def view(port: int, now: float | None = None) -> dict:
+def status(now: float | None = None) -> dict | None:
+    """`tailscale status --json`, cached for a minute; None without Tailscale."""
     global _cache
     now = time.monotonic() if now is None else now
-    if _cache and now - _cache[0] < CACHE_S and _cache[1] == port:
+    if _cache and now - _cache[0] < CACHE_S:
         return _cache[2]
     ts = _tailscale()
-    tailscale = None
-    if ts:
-        tailscale = tailscale_https(port, _json([ts, "status", "--json"]),
-                                    _json([ts, "serve", "status", "--json"]))
-    out = {"tailscale": tailscale, "lan": lan_url(port)}
-    _cache = (now, port, out)
+    out = _json([ts, "status", "--json"]) if ts else None
+    _cache = (now, 0, out)
     return out
+
+
+def remote(support_cfg=None, now: float | None = None) -> dict:
+    """Who can reach this box remotely: its tailnet, and support access if configured."""
+    on = tailnet(status(now))
+    return {"tailnet": on, "support": support(on, support_cfg)}
+
+
+def view(port: int, now: float | None = None, support_cfg=None) -> dict:
+    return {"lan": lan_url(port), **remote(support_cfg, now)}

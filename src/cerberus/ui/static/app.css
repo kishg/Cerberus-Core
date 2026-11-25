@@ -276,3 +276,6 @@ footer a { color: var(--text-2); }
   padding: 8px 12px; border: 1px solid var(--grid); border-radius: 8px; background: var(--surface);
   font-size: 14px; }
 .storage-banner .btn { padding: 4px 10px; font-size: 13px; }
+
+/* Support access is on (Core #48): impossible to miss. */
+.access .support-on { border-left: 3px solid var(--warning); padding-left: 10px; }

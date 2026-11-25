@@ -88,23 +88,37 @@ Everything else is under **Settings**. Some values are learned once the van
 has run for a while (panel voltage, engine charging current, a hot joint on
 the charging path); Settings shows "learning" until then.
 
-## 6. Remote access and HTTPS (optional)
+## 6. Remote access, and support access
 
-[Tailscale](https://tailscale.com) reaches the van from anywhere, including
-through Starlink, with no ports opened and no Cerberus account.
+**On the van's network** Cerberus is at `http://<mini PC address>:8088/`
+(Settings > Open Cerberus on your phone shows it).
 
-1. Install Tailscale on the mini PC and your phone (tailscale.com/download),
-   then on the mini PC: `sudo tailscale up`.
-2. In the Tailscale admin console, under DNS, enable **MagicDNS** and
-   **HTTPS certificates**.
-3. On the mini PC: `sudo tailscale serve --bg 8088`. Cerberus is then at
-   `https://<mini PC name>.<tailnet>.ts.net/` from any of your devices.
-   (`sudo tailscale serve --https=443 off` turns it off.)
+**Away from the van**, remote access is part of a Cerberus Cloud
+subscription. Cerberus itself has no remote-access setting. If you run
+your own VPN to the van (Tailscale, WireGuard, a VPN on your router), that
+is your setup, outside Cerberus; behind Starlink, an overlay VPN such as
+Tailscale is the kind that works.
 
-HTTPS is what lets a phone share its location. For a van without GPS on the
-Cerbo, open Cerberus on your phone at the `https://` address, sign in, and
-tick **Use this phone's location for the van** under Settings. It is used
-only while the phone is with the van: on the van's network, or while driving.
+Phone location (for a van without GPS on the Cerbo) needs an HTTPS page,
+which the Cloud's remote access provides. It is used only while the phone is
+with the van.
+
+**Support access.** If someone supports your box over their tailnet (a beta
+box, or a support case), Settings says so plainly, so it is never hidden. Add
+the provider to config.yaml:
+
+```yaml
+support:
+  tailnet: example-support.ts.net   # the provider's tailnet
+  provider: Example Support
+  contact: help@example.com          # how to reach them to end it
+```
+
+While the box is logged in to that tailnet, Settings shows **Support access:
+on**, the provider, and how to end it (ask them, or `sudo tailscale logout`
+on the box). On any other tailnet, Settings names it. Without a `support:`
+section nothing extra is shown. Cerberus only reads `tailscale status`; it
+never logs Tailscale in or out.
 
 ## 7. Home Assistant (optional)
 
@@ -182,7 +196,8 @@ van back, check:
 - [ ] The time on Now matches the van's local time.
 - [ ] Settings shows every detected value matching (or knowingly changed).
 - [ ] The box survives a power cycle: services come back on their own.
-- [ ] The owner has the PIN and, if they want remote access, Tailscale.
+- [ ] The owner has the PIN.
+- [ ] Settings shows **Support access: on** while the box is on the support tailnet.
 
 What to send back from each van: the Cerbo's firmware version, the battery
 make and pack count, and `journalctl -u cerberus --since "-1 day"` if anything

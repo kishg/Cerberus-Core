@@ -1551,14 +1551,22 @@ function renderAccess(a) {
   if (!form || form.querySelector(".access")) return;
   const card = el("section", { class: "card set-group access" });
   card.append(el("h2", {}, "Open Cerberus on your phone"));
-  const ts = a.tailscale;
-  if (ts && ts.url) {
-    card.append(addressRow("From anywhere (Tailscale)", ts.url,
-      "With Tailscale on, on any of your devices. HTTPS, so phone location sharing works. Add it to your home screen."));
-  } else if (ts) {
-    card.append(el("p", { class: "help" }, `Tailscale is on (${ts.name}) but not serving Cerberus over HTTPS. On this box, run: ${ts.command}`));
-  }
   if (a.lan) card.append(addressRow("On the van's network", a.lan, "From a phone or laptop on the van's WiFi."));
+  card.append(el("p", { class: "help" }, "Away from the van: remote access comes with a Cerberus Cloud subscription."));
+  // Who else can reach this box (Core #48). Shown whenever it's on a tailnet.
+  const sup = a.support, net = a.tailnet;
+  if (sup && sup.on) {
+    const row = el("div", { class: "set-row support-on" });
+    const head = el("div", { class: "set-head" });
+    head.append(el("span", { class: "name" }, "Support access: on"));
+    row.append(head);
+    row.append(el("p", {}, `${sup.provider || "Your support provider"} can reach this box for support` +
+      (net && net.tailnet ? ` (tailnet ${net.tailnet}).` : ".")));
+    row.append(el("p", { class: "help" }, (sup.contact ? `To end it, contact ${sup.contact}. ` : "") + sup.end));
+    card.append(row);
+  } else if (net && net.tailnet) {
+    card.append(el("p", { class: "help" }, `This box is on the tailnet ${net.tailnet}${net.name ? ` as ${net.name}` : ""}: anyone that tailnet allows can reach it.`));
+  }
   if (card.children.length > 1) form.prepend(card);
 }
 
