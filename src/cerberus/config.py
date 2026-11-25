@@ -341,14 +341,14 @@ def _parse_sync_tables(value) -> tuple:
     return tuple(dict.fromkeys(str(t) for t in value))
 
 
-def _parse_health_report(raw: dict) -> HealthReportConfig:
+def _parse_health_report(raw: dict, store=None) -> HealthReportConfig:
     """health_report: off unless enabled, with an https target (or a local one
     for testing). The token is a secret: CERBERUS_HEALTH_TOKEN wins."""
     h = raw.get("health_report") or {}
     cfg = HealthReportConfig(
         enabled=_parse_bool(h.get("enabled", False), "health_report.enabled"),
         target_url=str(h.get("target_url") or "").strip(),
-        auth_token=os.environ.get("CERBERUS_HEALTH_TOKEN") or str(h.get("auth_token") or ""),
+        auth_token=_token("CERBERUS_HEALTH_TOKEN", store, "health_report_token", str(h.get("auth_token") or "")),
         interval_seconds=int(h.get("interval_seconds", 900)),
         request_timeout_seconds=int(h.get("request_timeout_seconds", 10)),
     )
@@ -798,10 +798,19 @@ def is_set_up(path: str | Path) -> bool:
 
 
 def load(path: str | Path) -> Config:
-    return from_raw(read_raw(path), password=envfile_mod.mqtt_password(path))
+    from .secretstore import SecretStore
+    return from_raw(read_raw(path), password=envfile_mod.mqtt_password(path),
+                    store=SecretStore.for_config(path))
 
 
-def from_raw(raw: dict, password: str | None = None) -> Config:
+def _token(env_var: str, store, own_name: str, fallback: str) -> str:
+    """A Cloud token: the environment, then the secrets store (its own name, then the shared
+    cloud_token), then config.yaml (cerberus.secretstore)."""
+    from .secretstore import CLOUD_TOKEN, lookup
+    return lookup(env_var, store, (own_name, CLOUD_TOKEN), fallback)
+
+
+def from_raw(raw: dict, password: str | None = None, store=None) -> Config:
     """Build and validate a Config from merged YAML. The password comes from
     the environment unless given (validation passes a placeholder)."""
     if not (raw.get("mqtt") or {}).get("portal_id"):
@@ -857,7 +866,7 @@ def from_raw(raw: dict, password: str | None = None) -> Config:
     sync = SyncConfig(
         enabled=bool(sync_raw.get("enabled", False)),
         target_url=sync_raw.get("target_url", ""),
-        auth_token=os.environ.get("CERBERUS_SYNC_TOKEN") or sync_raw.get("auth_token", ""),
+        auth_token=_token("CERBERUS_SYNC_TOKEN", store, "sync_token", sync_raw.get("auth_token", "")),
         batch_size=int(sync_raw.get("batch_size", 500)),
         interval_seconds=int(sync_raw.get("interval_seconds", 60)),
         request_timeout_seconds=int(sync_raw.get("request_timeout_seconds", 10)),
@@ -1054,5 +1063,5 @@ user_agent=str(w_raw.get("user_agent", DEFAULT_WEATHER_UA)).strip(),
         temperature_unit=_parse_temperature_unit(raw),
         victron=_parse_victron(raw),
         inverter_idle=_parse_inverter_idle(raw),
-        health_report=_parse_health_report(raw),
+        health_report=_parse_health_report(raw, store),
     )

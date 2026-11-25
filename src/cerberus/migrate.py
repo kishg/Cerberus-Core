@@ -13,8 +13,9 @@ writes DIR (owner-only), everything the new box needs:
   - **Home Assistant off.** HA runs on the old box (127.0.0.1 there); on by
     default it would publish into nothing. Turn it on in Settings with the
     broker's address if HA moves or stays reachable.
-* .env (Cerbo password, Govee and VRM keys), the PIN hash, the last phone
-  position. Not sessions: the box has a new address, and browsers keep a
+* .env (Cerbo password, Govee and VRM keys), the secrets store (secrets/, its
+  0700/0600 modes kept; names only in the manifest), the PIN hash, the last phone
+  position, and storage mode. Not sessions: the box has a new address, and browsers keep a
   sign-in per address, so everyone signs in again there anyway.
 * cerberus.db: a consistent online copy (SQLite's backup API), taken while
   the collector keeps running, plus the drive reports.
@@ -36,7 +37,7 @@ import yaml
 
 from . import config as cfg_mod
 from . import envfile
-from . import notes, phonefix, service_log, victron_imports
+from . import notes, phonefix, secretstore, service_log, storage, victron_imports
 from . import settings as settings_mod
 from .ui import auth
 
@@ -100,12 +101,25 @@ def bundle(config_path: Path, db_path: Path, out: Path) -> dict:
     files[cfg_mod.SETUP_FILE] = "UI settings + new-box overrides"
 
     for name in (envfile.ENV_FILE, auth.PIN_FILE, phonefix.PHONE_FILE, notes.NOTES_FILE,
-                 service_log.SERVICE_FILE):
+                 service_log.SERVICE_FILE, storage.STORAGE_FILE):
         src = config_path.with_name(name)
         if src.exists():
             shutil.copyfile(src, out / name)
             os.chmod(out / name, 0o600)
             files[name] = "copied"
+
+    # The secrets store moves with its modes: folder 0700, each secret 0600. Names only in the
+    # manifest, never values.
+    store = secretstore.SecretStore.for_config(config_path)
+    names = store.names()
+    if names:
+        dest = out / secretstore.SECRETS_DIR
+        dest.mkdir(mode=0o700)
+        os.chmod(dest, 0o700)
+        for name in names:
+            shutil.copyfile(store.dir / name, dest / name)
+            os.chmod(dest / name, 0o600)
+        files[secretstore.SECRETS_DIR + "/"] = f"{len(names)} secrets: {', '.join(names)}"
 
     imports = config_path.with_name(victron_imports.IMPORTS_DIR)
     if imports.is_dir():

@@ -38,9 +38,17 @@ for f in config.yaml setup.yaml; do
   install -o cerberus -g cerberus -m 640 "$SRC/$f" "$ETC/$f"
 done
 for f in .env .cerberus-ui-pin.json .cerberus-phone-fix.json .cerberus-notes.json \
-         .cerberus-service-log.json; do
+         .cerberus-service-log.json .cerberus-storage.json; do
   if [[ -e "$SRC/$f" ]]; then install -o cerberus -g cerberus -m 600 "$SRC/$f" "$ETC/$f"; fi
 done
+if [[ -d "$SRC/secrets" ]]; then
+  # The secrets store (cerberus.secretstore): folder 0700, each secret 0600, owned by cerberus.
+  rm -rf "$ETC/secrets"
+  install -d -o cerberus -g cerberus -m 700 "$ETC/secrets"
+  for s in "$SRC/secrets"/*; do
+    [[ -f "$s" ]] && install -o cerberus -g cerberus -m 600 "$s" "$ETC/secrets/$(basename "$s")"
+  done
+fi
 if [[ -d "$SRC/.cerberus-victron" ]]; then
   rm -rf "$ETC/.cerberus-victron"
   cp -r "$SRC/.cerberus-victron" "$ETC/.cerberus-victron"
