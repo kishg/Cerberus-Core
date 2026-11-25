@@ -31,7 +31,7 @@ NY = ZoneInfo("America/New_York")
 DENVER = ZoneInfo("America/Denver")
 GPS = "N/abc/gps/0"
 TZ_TOPIC = "N/abc/settings/0/Settings/System/TimeZone"
-HOME = (40.8662, -74.3805)
+HOME = (12.3456, -98.7654)   # made up (open ocean)
 
 
 def _fix(loc, lat, lon, now, fix=1):

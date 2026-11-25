@@ -59,7 +59,7 @@ def _patch(monkeypatch, fn):
 def test_celsius_is_converted_to_fahrenheit(monkeypatch):
     """20 C is 68 F. The column is air_temp_f and must actually hold F."""
     _patch(monkeypatch, lambda req, timeout=None: _Resp(PAYLOAD))
-    s = weather_mod.fetch(40.87, -74.38, "test/1")
+    s = weather_mod.fetch(12.35, -98.77, "test/1")
     assert s.air_temp_f == 68.0
     assert s.cloud_pct == 80.5
     assert s.humidity_pct == 58.0
@@ -70,7 +70,7 @@ def test_uses_the_nearest_timestep_not_a_later_forecast(monkeypatch):
     """timeseries[0] is now; [1] is an hour out. Pairing a forecast with a
     30 s electrical sample would silently decorrelate the whole point."""
     _patch(monkeypatch, lambda req, timeout=None: _Resp(PAYLOAD))
-    assert weather_mod.fetch(40.87, -74.38, "test/1").air_temp_f == 68.0
+    assert weather_mod.fetch(12.35, -98.77, "test/1").air_temp_f == 68.0
 
 
 def test_identifying_user_agent_is_sent(monkeypatch):
@@ -81,7 +81,7 @@ def test_identifying_user_agent_is_sent(monkeypatch):
         seen["ua"] = req.get_header("User-agent")
         return _Resp(PAYLOAD)
     _patch(monkeypatch, fake)
-    weather_mod.fetch(40.87, -74.38, "Cerberus/0.1 (contact)")
+    weather_mod.fetch(12.35, -98.77, "Cerberus/0.1 (contact)")
     assert seen["ua"] == "Cerberus/0.1 (contact)"
 
 
@@ -96,7 +96,7 @@ def test_network_failure_returns_none_never_raises(monkeypatch, boom):
     exception escaping into the Cerbo liveness loop is not."""
     def fake(req, timeout=None): raise boom
     _patch(monkeypatch, fake)
-    assert weather_mod.fetch(40.87, -74.38, "test/1") is None
+    assert weather_mod.fetch(12.35, -98.77, "test/1") is None
 
 
 @pytest.mark.parametrize("payload", [
@@ -106,7 +106,7 @@ def test_network_failure_returns_none_never_raises(monkeypatch, boom):
 def test_malformed_payload_returns_none(monkeypatch, payload):
     """A third-party schema change must degrade to a gap, not a crash."""
     _patch(monkeypatch, lambda req, timeout=None: _Resp(payload))
-    assert weather_mod.fetch(40.87, -74.38, "test/1") is None
+    assert weather_mod.fetch(12.35, -98.77, "test/1") is None
 
 
 def test_missing_fields_are_none_not_zero(monkeypatch):
@@ -115,7 +115,7 @@ def test_missing_fields_are_none_not_zero(monkeypatch):
     _patch(monkeypatch, lambda req, timeout=None: _Resp(
         {"properties": {"timeseries": [{"data": {"instant": {"details": {
             "air_temperature": 10.0}}}}]}}))
-    s = weather_mod.fetch(40.87, -74.38, "test/1")
+    s = weather_mod.fetch(12.35, -98.77, "test/1")
     assert s.air_temp_f == 50.0
     assert s.cloud_pct is None and s.humidity_pct is None and s.wind_mph is None
 

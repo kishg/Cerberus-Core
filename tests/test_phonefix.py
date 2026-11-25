@@ -198,7 +198,7 @@ def test_phone_on_the_lan_through_tailscale_serve(server, monkeypatch):
     monkeypatch.setattr(access, "peer_on_lan", lambda ip: "192.168.1.61:41641" if ip == "100.64.0.10" else None)
     auth.set_pin(cfg, "2468")
     tok = _post(port, "/auth/login", {"pin": "2468"})[1]["token"]
-    body = {"lat": 40.86, "lon": -74.41, "accuracy_m": 20, "ts_ms": int(time.time() * 1000)}
+    body = {"lat": 12.35, "lon": -98.77, "accuracy_m": 20, "ts_ms": int(time.time() * 1000)}
     c = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
     c.request("POST", "/api/v1/location/phone", body=json.dumps(body),
               headers={"Host": TS_HOST, "X-Forwarded-For": "100.64.0.10",

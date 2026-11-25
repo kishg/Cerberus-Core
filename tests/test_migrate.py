@@ -28,11 +28,11 @@ def old_box(tmp_path):
     box.mkdir()
     cfg = box / "config.yaml"
     shutil.copy(ROOT / "config.yaml", cfg)
-    (box / "setup.yaml").write_text("weather:\n  zip_code: '07054'\n  latitude: 40.86\n  longitude: -74.41\n")
+    (box / "setup.yaml").write_text("weather:\n  zip_code: '12345'\n  latitude: 12.35\n  longitude: -98.77\n")
     envfile.set_value(envfile.path_for(cfg), envfile.MQTT_PASSWORD, "pw")
     auth.set_pin(cfg, "2468")
     auth.Sessions(cfg).login("2468", "x")
-    phonefix.write(cfg, {"lat": 40.86, "lon": -74.41, "accuracy_m": 9, "ts": 1}, "lan")
+    phonefix.write(cfg, {"lat": 12.35, "lon": -98.77, "accuracy_m": 9, "ts": 1}, "lan")
     notes.add(cfg, "solar_path_resistance", "Tightened the MPPT lugs", now=1)
     service_log.add(cfg, {"date": "2026-10-01", "category": "oil", "text": "Oil and filter"},
                     now=1_800_000_000)
@@ -70,7 +70,7 @@ def test_new_box_settings_keep_the_ui_ones_and_clear_bluetooth_and_ha(old_box, t
     out = tmp_path / "bundle"
     migrate.bundle(cfg, db, out)
     loaded = cfg_mod.from_raw(cfg_mod.read_raw(out / "config.yaml"), password="x")
-    assert loaded.weather.zip_code == "07054"                # the owner's settings survive
+    assert loaded.weather.zip_code == "12345"                # the owner's settings survive
     assert dict(loaded.ble.pack_addresses) == {} and dict(loaded.ble.cabin_sensors) == {}
     assert loaded.ble.acr_address == "" and not loaded.ble.enabled       # until a scan
     assert loaded.ha_mqtt.enabled is False
