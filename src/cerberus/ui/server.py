@@ -510,7 +510,7 @@ def make_handler(app: App):
             except auth.AuthError as err:
                 return self._json(403, {"error": str(err)})
             except firstrun.SetupError as err:
-                return self._json(400, {"error": str(err)})
+                return self._json(400, {"error": str(err), "code": err.code})
             except cfg_mod.ConfigError as err:
                 return self._json(400, {"error": str(err)})
             except notes.NoteError as err:

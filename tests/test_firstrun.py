@@ -86,9 +86,92 @@ def test_discover_puts_the_gx_first():
         networks=[ipaddress.ip_network("10.0.0.0/29")],
         port_check=lambda h: h in open_,
         gx_check=lambda h: h == "10.0.0.5",
-        resolver=lambda name: "10.0.0.5")
-    assert found == [{"host": "venus.local", "address": "10.0.0.5", "gx": True},
-                     {"host": "10.0.0.2", "address": "10.0.0.2", "gx": False}]
+        resolver=lambda name: "10.0.0.5",
+        web_check=lambda h: False)
+    assert found == [{"host": "venus.local", "address": "10.0.0.5", "mqtt": True, "gx": True},
+                     {"host": "10.0.0.2", "address": "10.0.0.2", "mqtt": True, "gx": False}]
+
+
+# --- MQTT off, and the other first-install failures (Core #39) ----------------------------
+
+def test_discover_finds_a_gx_with_mqtt_off_by_its_web_page():
+    # .5 is the GX with MQTT off (web page only); .3 is a router that also serves a page.
+    found = firstrun.discover(
+        networks=[ipaddress.ip_network("10.0.0.0/29")],
+        port_check=lambda h: h == "10.0.0.2",
+        web_check=lambda h: h in {"10.0.0.3", "10.0.0.5"},
+        gx_check=lambda h: h == "10.0.0.5",
+        resolver=lambda name: None)
+    assert found == [{"host": "10.0.0.5", "address": "10.0.0.5", "mqtt": False, "gx": True},
+                     {"host": "10.0.0.2", "address": "10.0.0.2", "mqtt": True, "gx": False}]
+
+
+def test_discover_mdns_gx_with_mqtt_off():
+    found = firstrun.discover(networks=[], port_check=lambda h: False, web_check=lambda h: True,
+                              gx_check=lambda h: True, resolver=lambda name: "10.0.0.9")
+    assert found == [{"host": "venus.local", "address": "10.0.0.9", "mqtt": False, "gx": True}]
+
+
+def test_probe_says_mqtt_is_off(monkeypatch):
+    import paho.mqtt.client as mqtt
+
+    def refuse(self, *a, **kw):
+        raise ConnectionRefusedError(61, "Connection refused")
+    monkeypatch.setattr(mqtt.Client, "connect", refuse)
+    with pytest.raises(firstrun.SetupError) as e:
+        firstrun.probe("10.0.0.5", "pw", gx_check=lambda h: True)
+    assert e.value.code == "mqtt_off" and "Settings > Services" in str(e.value)
+    with pytest.raises(firstrun.SetupError) as e:
+        firstrun.probe("10.0.0.6", "pw", gx_check=lambda h: False)
+    assert e.value.code == "unreachable"
+
+
+@pytest.mark.parametrize("rc_text, code", [
+    ("Not authorized", "password"), ("Bad user name or password", "password"),
+    ("Server unavailable", "refused")])
+def test_refused_reasons(rc_text, code):
+    err = firstrun.refused(rc_text)
+    assert err.code == code
+    if code == "password":
+        assert "Remote Console password" in str(err)
+
+
+def test_no_data_hint():
+    assert "security profile" in firstrun.NO_DATA.format(host="10.0.0.5")
+
+
+def test_setup_errors_carry_their_code_to_the_wizard(tmp_path, monkeypatch):
+    import http.client
+    import json as _json
+    import threading
+    from cerberus.db import Db
+    from cerberus.ui import auth
+    from cerberus.ui.server import App, serve
+
+    def fail(address, password, *a, **kw):
+        raise firstrun.SetupError(firstrun.MQTT_OFF.format(host=address), "mqtt_off")
+    monkeypatch.setattr(firstrun, "probe", fail)
+    cfgp = tmp_path / "config.yaml"
+    db = Db(str(tmp_path / "s.db"))
+    httpd = serve(App.from_config(str(cfgp), db._path), "127.0.0.1", 0)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    try:
+        port = httpd.server_address[1]
+
+        def post(path, body, tok=None):
+            c = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+            c.request("POST", "/api/v1" + path, body=_json.dumps(body),
+                      headers={"Content-Type": "application/json", **({"Authorization": f"Bearer {tok}"} if tok else {})})
+            r = c.getresponse()
+            return r.status, _json.loads(r.read())
+        auth.set_pin(cfgp, "2468")
+        tok = post("/auth/login", {"pin": "2468"})[1]["token"]
+        code, body = post("/setup/probe", {"address": "10.0.0.5", "password": "pw"}, tok)
+        assert code == 400 and body["code"] == "mqtt_off" and "MQTT is off" in body["error"]
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+        db.close()
 
 
 # --- probe -------------------------------------------------------------------------------
