@@ -82,6 +82,7 @@ def test_only_the_local_client_on_the_box(box):
     # local client, even with the right token.
     assert _post(port, "/cloud/link", LINK, **{"X-Forwarded-For": "100.64.0.9"})[0] == 403
     assert _post(port, "/cloud/link", LINK, Host="abc.box.example")[0] == 403
+    assert _post(port, "/cloud/link", LINK, **{"X-Cerberus-Via": "relay"})[0] == 403   # a relayed request
     # A token file anyone can read is no secret: ignored.
     os.chmod(tok, 0o644)
     assert _post(port, "/cloud/link", LINK)[0] == 403
