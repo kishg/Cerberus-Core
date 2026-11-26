@@ -12,6 +12,8 @@ cloud relay later):
   GET  /api/v1/status             the 24 h status table and the owner's recent notes
                                   (cerberus.status; tools/status_report.py --url)
   GET  /api/v1/about              license, source link (AGPL-3.0 s.13), device id
+  GET  /api/v1/context            how this browser reaches the box: box, lan, tailscale or relay (with
+                                  the relay's way back and the place's name)
   GET  /api/v1/storage            storage mode: on/off, since, expected end, whether that has
                                   passed, and a suggestion when the van looks stored (cerberus.storage)
   GET  /api/v1/sync               van data sharing: on/off, where to (host only), the tables,
@@ -105,6 +107,8 @@ TYPES = {
     ".css": "text/css; charset=utf-8",
     ".svg": "image/svg+xml",
     ".webmanifest": "application/manifest+json",
+    ".woff2": "font/woff2",
+    ".txt": "text/plain; charset=utf-8",          # FONTS-LICENSE.txt
 }
 MAX_BODY = 64 * 1024
 KV_DEVICE_ID = "device.id"
@@ -284,6 +288,17 @@ def make_handler(app: App):
                                         "pin_set": auth.has_pin(app.config_path)})
             if ep == "setup/detect":
                 return self._json(200, self._detected())
+            if ep == "context":
+                # How this browser is reaching the box, so the UI can say so: in the van (the box
+                # itself or its LAN), over Tailscale, or through a cloud relay, with the relay's way back.
+                kind = phonefix.client_kind(self.client_address[0], self.headers)
+                out = {"via": kind}
+                if kind == phonefix.RELAY:
+                    back = str(self.headers.get("X-Cerberus-Return") or "")
+                    u = urlsplit(back)
+                    out["return_url"] = back if u.scheme == "https" and u.hostname and len(back) < 500 else None
+                    out["place"] = str(self.headers.get("X-Cerberus-Place") or "")[:80] or None
+                return self._json(200, out)
             if ep == "about":
                 return self._about()
             if ep == "access":

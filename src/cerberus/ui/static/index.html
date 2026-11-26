@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Cerberus</title>
   <meta name="description" content="Your van's electrical system, read from its own data.">
-  <meta name="theme-color" content="#f9f9f7" media="(prefers-color-scheme: light)">
-  <meta name="theme-color" content="#0d0d0d" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#12161A" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#080A0C" media="(prefers-color-scheme: dark)">
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/icon.svg">
@@ -24,14 +24,17 @@
   </script>
 </head>
 <body>
-  <div class="wrap">
-    <header>
-      <h1>Cerberus</h1>
+  <div class="relaybar" id="relaybar" hidden></div>
+  <header class="band">
+    <div class="band-in">
+      <h1 class="wordmark"><svg class="mark" viewBox="0 0 48 33" aria-hidden="true"><polygon points="9,5 12,12 16,15 15,22 9,21 2,23 1,20 7,14"/><polygon points="39,5 36,12 32,15 33,22 39,21 46,23 47,20 41,14"/><polygon points="18,3 21,10 27,10 30,3 31,16 24,27 17,16"/><polygon points="12,25 15,25 24,30 33,25 36,25 24,33"/></svg><span>CERBERUS</span><span class="where" id="where" hidden></span></h1>
       <div class="header-right">
         <div class="status" id="status" role="status" aria-live="polite"></div>
         <button type="button" class="theme" id="theme" aria-label="Theme"></button>
       </div>
-    </header>
+    </div>
+  </header>
+  <div class="wrap">
     <div class="storage-banner" id="storage" hidden></div>
     <nav>
       <a href="#now" data-view="now">Now</a>
