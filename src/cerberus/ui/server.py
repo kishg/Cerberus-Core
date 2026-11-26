@@ -436,6 +436,16 @@ def make_handler(app: App):
                 return self._json(500, {"error": f"configuration does not load: {err}"})
 
         # ------------------------------------------------------------ POST
+        def _pin_bucket(self, addr: str) -> str:
+            """Who a PIN attempt counts against. Relayed and `tailscale serve` requests all come from
+            loopback, so they count against the person (relay) or the forwarded address instead;
+            otherwise one remote guesser would lock out every remote user."""
+            kind = phonefix.client_kind(addr, self.headers)
+            if kind == phonefix.RELAY:
+                return "relay:" + str(self.headers.get("X-Cerberus-Relay-User") or "?")[:64]
+            fwd = (self.headers.get("X-Forwarded-For") or "").split(",")[0].strip()
+            return f"fwd:{fwd[:64]}" if kind == phonefix.TAILSCALE and fwd else addr
+
         def _token(self) -> str | None:
             h = self.headers.get("Authorization", "")
             return h[7:].strip() if h.startswith("Bearer ") else None
@@ -476,7 +486,7 @@ def make_handler(app: App):
                     app.reload()
                     return self._json(200, done)
                 if ep == "auth/login":
-                    return self._json(200, {"token": app.sessions.login(body.get("pin"), addr)})
+                    return self._json(200, {"token": app.sessions.login(body.get("pin"), addr, self._pin_bucket(addr))})
                 if ep == "auth/logout":
                     app.sessions.logout(self._token())
                     return self._json(200, {"ok": True})

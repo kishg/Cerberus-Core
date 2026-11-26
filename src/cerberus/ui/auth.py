@@ -32,8 +32,10 @@ SESSIONS_FILE = ".cerberus-ui-sessions.json"
 ITERATIONS = 200_000
 SESSION_S = 30 * 86400
 RENEW_S = 86400
-MAX_FAILURES = 5
+MAX_FAILURES = 5          # wrong PINs per requester within LOCKOUT_S
 LOCKOUT_S = 60
+BOX_MAX_FAILURES = 20     # wrong PINs from everyone together within BOX_LOCKOUT_S: guessing from many
+BOX_LOCKOUT_S = 600       #   addresses at once still gets nowhere (the owner at the box can --set-pin)
 MIN_LEN, MAX_LEN = 4, 12
 
 
@@ -105,6 +107,7 @@ class Sessions:
         self.clock = clock
         self._tokens: dict[str, float] = {}       # sha256(token) -> expiry
         self._fails: dict[str, list[float]] = {}
+        self._all_fails: list[float] = []
         self._lock = threading.Lock()
         self._mtime: int | None = -1
         with self._lock:
@@ -136,26 +139,54 @@ class Sessions:
         _write_private(p, {"v": 1, "sessions": self._tokens})
         self._mtime = p.stat().st_mtime_ns
 
-    def login(self, pin: str, addr: str) -> str:
+    def login(self, pin: str, addr: str, bucket: str | None = None) -> str:
+        """A session token for the right PIN. Every attempt counts before the PIN is checked, under
+        the lock, so parallel guesses can't all slip under the limit; a right PIN takes its own
+        attempt back. `bucket` is who the attempt counts against (default: the address)."""
         now = self.clock()
+        key = bucket or addr
         with self._lock:
-            recent = [t for t in self._fails.get(addr, []) if now - t < LOCKOUT_S]
-            self._fails[addr] = recent
-            if len(recent) >= MAX_FAILURES:
+            self._sweep(now)
+            mine = self._fails.setdefault(key, [])
+            if len(mine) >= MAX_FAILURES:
                 raise AuthError("Too many wrong PINs; wait a minute and try again")
+            if len(self._all_fails) >= BOX_MAX_FAILURES:
+                raise AuthError("Too many wrong PINs on this box; wait ten minutes and try again")
+            mine.append(now)
+            self._all_fails.append(now)
         if not has_pin(self.config_path):
+            self._forget(key, now)
             raise AuthError("No PIN is set yet; set one on the box first")
         if not check_pin(self.config_path, pin):
-            with self._lock:
-                self._fails.setdefault(addr, []).append(now)
             raise AuthError("Wrong PIN")
         token = secrets.token_urlsafe(32)
         with self._lock:
-            self._fails.pop(addr, None)
+            self._fails.pop(key, None)
+            self._take_back(now)
             self._reload()
             self._tokens[_digest(token)] = now + SESSION_S
             self._save()
         return token
+
+    def _sweep(self, now: float) -> None:
+        """Drop attempts past their windows (and requesters with none left), so the map stays small."""
+        for k in list(self._fails):
+            self._fails[k] = [t for t in self._fails[k] if now - t < LOCKOUT_S]
+            if not self._fails[k]:
+                del self._fails[k]
+        self._all_fails = [t for t in self._all_fails if now - t < BOX_LOCKOUT_S]
+
+    def _take_back(self, at: float) -> None:
+        try:
+            self._all_fails.remove(at)
+        except ValueError:
+            pass
+
+    def _forget(self, key: str, at: float) -> None:
+        with self._lock:
+            if at in self._fails.get(key, []):
+                self._fails[key].remove(at)
+            self._take_back(at)
 
     def valid(self, token: str | None) -> bool:
         if not token:
