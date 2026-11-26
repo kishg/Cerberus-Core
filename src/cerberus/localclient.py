@@ -89,11 +89,20 @@ def _https(url, what: str) -> str:
     return str(url)
 
 
+TYPES = {"enabled": bool, "share_position": bool, "metered": bool, "interval_seconds": int,
+         "target_url": str, "tables": (str, list)}
+
+
 def link(config_path: str | Path, body: dict) -> dict:
-    """Store the cloud token and set health reports and sync. Returns what is now set."""
+    """Store the cloud token and set health reports and sync. Returns what is now set.
+
+    What a local client may not do without the owner (security review S12): point health reports or
+    sync at a different service than the one the box is linked to (unlinking keeps the address, so
+    a new service needs the owner), or turn on sharing the van's position."""
     token = body.get("cloud_token")
     if not isinstance(token, str) or not 16 <= len(token) <= 512 or not token.isprintable():
         raise LocalClientError("cloud_token: expected the service's token")
+    current = _raw(config_path)
     changes: dict = {}
     for section, keys in (("health_report", HEALTH_KEYS), ("sync", SYNC_KEYS)):
         given = body.get(section)
@@ -101,11 +110,23 @@ def link(config_path: str | Path, body: dict) -> dict:
             continue
         if not isinstance(given, dict) or set(given) - set(keys):
             raise LocalClientError(f"{section}: only {', '.join(keys)}")
+        for k, v in given.items():
+            if not isinstance(v, TYPES[k]) or (TYPES[k] is int and isinstance(v, bool)):
+                raise LocalClientError(f"{section}.{k}: wrong type")
+        now = current.get(section) or {}
+        now = now if isinstance(now, dict) else {}
         if "target_url" in given:
             _https(given["target_url"], f"{section}.target_url")
+            was = urlsplit(str(now.get("target_url") or "")).hostname
+            if was and was != urlsplit(given["target_url"]).hostname:
+                raise LocalClientError(f"{section} goes to {was}; sending it elsewhere needs the owner at the box")
+        if given.get("share_position") is True and now.get("share_position") is not True:
+            raise LocalClientError("sharing the van's position needs the owner's PIN at the box")
         changes[section] = dict(given)
-    _write(config_path, changes)                       # validated before the token is stored
+    setup = _prepare(config_path, changes)             # checked to load before anything is stored
     secretstore.SecretStore.for_config(config_path).set("cloud_token", token)
+    if setup is not None:
+        settings_mod.write_setup(config_path, setup)
     log.info("local client linked the box to %s", ", ".join(
         sorted({urlsplit(v.get("target_url", "")).hostname or "?" for v in changes.values()})) or "a service")
     return {"linked": True, "set": {k: sorted(v) for k, v in changes.items()}}
@@ -119,17 +140,25 @@ def unlink(config_path: str | Path) -> dict:
     return {"linked": False}
 
 
-def _write(config_path, changes: dict) -> None:
-    """Merge `changes` into setup.yaml, refusing anything that wouldn't load."""
+def _prepare(config_path, changes: dict) -> dict | None:
+    """setup.yaml with `changes` merged in, refused if it wouldn't load; None when nothing changes."""
     if not changes:
-        return
+        return None
     sp = cfg_mod.setup_path(config_path)
     setup = (yaml.safe_load(sp.read_text()) if sp.exists() else None) or {}
     for section, values in changes.items():
-        setup.setdefault(section, {}).update(values)
+        if not isinstance(setup.get(section), dict):   # absent, or left null by hand
+            setup[section] = {}
+        setup[section].update(values)
     base = yaml.safe_load(Path(config_path).read_text()) or {}
     try:
         cfg_mod.from_raw(cfg_mod.merge(base, setup), password=os.environ.get("CERBERUS_MQTT_PASSWORD") or "validate-only")
     except cfg_mod.ConfigError as err:
         raise LocalClientError(f"that wouldn't load: {err}") from None
-    settings_mod.write_setup(config_path, setup)
+    return setup
+
+
+def _write(config_path, changes: dict) -> None:
+    setup = _prepare(config_path, changes)
+    if setup is not None:
+        settings_mod.write_setup(config_path, setup)
