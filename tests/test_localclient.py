@@ -119,3 +119,25 @@ def test_storage_mode_from_the_local_client(box):
     code, r = _post(port, "/storage", {"on": False})
     assert code == 200 and r["storage"]["on"] is False and r["storage"]["by"] == "cloud"
     assert _post(port, "/storage", {"on": False}, token="w" * 40)[0] == 401
+
+
+def test_a_local_client_cannot_send_the_data_elsewhere_or_share_position(box):
+    cfgp, _, port = box
+    assert _post(port, "/cloud/link", LINK)[0] == 200
+    moved = {**LINK, "sync": {**LINK["sync"], "target_url": "https://other.example/api/v1/cerberus/sync"}}
+    code, r = _post(port, "/cloud/link", moved)
+    assert code == 400 and "cloud.example" in r["error"]                   # S12: not to another service
+    assert _post(port, "/cloud/unlink", {"x": 1})[0] == 200
+    assert _post(port, "/cloud/link", moved)[0] == 400                      # not even after unlinking
+    code, r = _post(port, "/cloud/link", {**LINK, "sync": {**LINK["sync"], "share_position": True}})
+    assert code == 400 and "PIN" in r["error"]                              # nor turn on position sharing
+    assert _setup(cfgp)["sync"]["share_position"] is False
+
+
+def test_types_are_checked_and_an_empty_section_is_fine(box):
+    cfgp, _, port = box
+    assert _post(port, "/cloud/link", {**LINK, "sync": {**LINK["sync"], "enabled": "false"}})[0] == 400
+    s = _setup(cfgp)
+    s["sync"] = None                                                        # left null by hand
+    cfg_mod.setup_path(cfgp).write_text(yaml.safe_dump(s))
+    assert _post(port, "/cloud/link", LINK)[0] == 200

@@ -84,8 +84,10 @@ from __future__ import annotations
 
 import base64
 import binascii
+import ipaddress
 import json
 import logging
+import socket
 import sqlite3
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -113,6 +115,33 @@ TYPES = {
 MAX_BODY = 64 * 1024
 KV_DEVICE_ID = "device.id"
 LEARN_CACHE_S = 600
+
+
+LOCAL_SUFFIXES = (".local", ".localhost", ".ts.net", ".home.arpa", ".lan", ".internal")
+
+
+def host_allowed(addr: str, host_header: str | None) -> bool:
+    """Whether a request from `addr` names this box (security review S13: DNS rebinding).
+
+    A page on the internet can rename itself to the box's LAN address; its requests then carry the
+    page's own name. On the network, answer only to an IP address, a single-label name (the
+    box's hostname, MagicDNS), mDNS or a private suffix, or this machine's own name. Loopback
+    (the box itself, tailscale serve, a cloud relay's agent) is decided by phonefix.client_kind."""
+    try:
+        if ipaddress.ip_address(addr.split("%")[0]).is_loopback:
+            return True
+    except ValueError:
+        return False
+    name = phonefix._host_name(host_header)
+    if not name:
+        return False
+    try:
+        ipaddress.ip_address(name.strip("[]"))
+        return True
+    except ValueError:
+        pass
+    name = name.rstrip(".")
+    return "." not in name or name.endswith(LOCAL_SUFFIXES) or name in (socket.gethostname().lower(), socket.getfqdn().lower())
 
 
 def connect_ro(db_path: str) -> sqlite3.Connection:
@@ -228,6 +257,8 @@ def make_handler(app: App):
 
         # ------------------------------------------------------------ GET
         def do_GET(self):
+            if not host_allowed(self.client_address[0], self.headers.get("Host")):
+                return self._json(421, {"error": "this box doesn't answer to that name"})
             url = urlsplit(self.path)
             ep = self._route(url.path)
             if ep is not None:
@@ -464,6 +495,8 @@ def make_handler(app: App):
             return data if isinstance(data, dict) else None
 
         def do_POST(self):
+            if not host_allowed(self.client_address[0], self.headers.get("Host")):
+                return self._json(421, {"error": "this box doesn't answer to that name"})
             url = urlsplit(self.path)
             if not url.path.startswith("/api/v1/") or not app.config_path:
                 return self._json(404, {"error": "not found"})
