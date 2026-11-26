@@ -115,5 +115,7 @@ def test_without_a_token_file_there_is_no_local_client(box):
 def test_storage_mode_from_the_local_client(box):
     _, _, port = box
     code, r = _post(port, "/storage", {"on": True, "until": "2027-03-01"})
-    assert code == 200 and r["storage"]["on"] is True
+    assert code == 200 and r["storage"]["on"] is True and r["storage"]["by"] == "cloud"   # it says who
+    code, r = _post(port, "/storage", {"on": False})
+    assert code == 200 and r["storage"]["on"] is False and r["storage"]["by"] == "cloud"
     assert _post(port, "/storage", {"on": False}, token="w" * 40)[0] == 401
