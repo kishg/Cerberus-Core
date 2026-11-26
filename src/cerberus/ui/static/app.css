@@ -280,10 +280,15 @@ footer a { color: var(--text-2); }
 /* Support access is on (Core #48): impossible to miss. */
 .access .support-on { border-left: 3px solid var(--warning); padding-left: 10px; }
 
+/* The brand's fonts, bundled with the box (OFL 1.1, FONTS-LICENSE.txt): no internet needed. */
+@font-face { font-family: "Inter"; font-style: normal; font-weight: 400 600; font-display: swap; src: url("/font-inter.woff2") format("woff2"); }
+@font-face { font-family: "Space Grotesk"; font-style: normal; font-weight: 500 700; font-display: swap; src: url("/font-space-grotesk.woff2") format("woff2"); }
+@font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 500; font-display: swap; src: url("/font-jetbrains-mono.woff2") format("woff2"); }
+
 /* ---- Cerberus brand (the beta one-pager's): near-black band with the amber mark and the spaced
    wordmark, warm off-white ground, mono caps labels, small corners. Chart colours above stay as
-   they are (chosen for charts). Fonts: Space Grotesk, Inter and JetBrains Mono when the device
-   has them, else close system fonts; the box never fetches fonts from the internet. */
+   they are (chosen for charts). Fonts: Space Grotesk, Inter and JetBrains Mono, bundled above; the
+   box never fetches fonts from the internet. */
 :root {
   --page: #F5F6F3; --surface: #FFFFFF; --text: #12161A; --text-2: #3A444C; --muted: #5A646C;
   --grid: #D5D9D6; --axis: #B9BEBA; --ring: rgba(18, 22, 26, 0.14);

@@ -57,3 +57,14 @@ def test_relay_headers_mean_nothing_from_the_network_side(port):
     # Over Tailscale serve (proxied), a Return header doesn't make it a relay.
     c = _context(port, Host="van.tailnet.example", **{"X-Cerberus-Return": "https://evil.example/"})
     assert c == {"via": "tailscale"}
+
+
+def test_the_brand_fonts_come_from_the_box(port):
+    for name in ("font-inter.woff2", "font-space-grotesk.woff2", "font-jetbrains-mono.woff2"):
+        c = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+        c.request("GET", "/" + name)
+        r = c.getresponse()
+        assert (r.status, r.getheader("Content-Type"), r.read()[:4]) == (200, "font/woff2", b"wOF2")
+    c = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+    c.request("GET", "/FONTS-LICENSE.txt")
+    assert b"SIL Open Font License" in c.getresponse().read()

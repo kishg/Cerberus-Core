@@ -107,6 +107,8 @@ TYPES = {
     ".css": "text/css; charset=utf-8",
     ".svg": "image/svg+xml",
     ".webmanifest": "application/manifest+json",
+    ".woff2": "font/woff2",
+    ".txt": "text/plain; charset=utf-8",          # FONTS-LICENSE.txt
 }
 MAX_BODY = 64 * 1024
 KV_DEVICE_ID = "device.id"
