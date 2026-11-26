@@ -2022,6 +2022,22 @@ getJSON("/about").then((a) => {
     el("a", { href: a.source_url, target: "_blank", rel: "noopener noreferrer" }, "Source code"));
 }).catch(() => {});
 
+// Where am I? Through a cloud relay: a bar with the way back. Otherwise a tag in the band.
+getJSON("/context").then((c) => {
+  const tag = document.getElementById("where");
+  const words = { box: "IN THE VAN", lan: "IN THE VAN", tailscale: "REMOTE · TAILSCALE", relay: "VIA CERBERUS CLOUD" };
+  tag.textContent = words[c.via] || "";
+  tag.hidden = !tag.textContent;
+  if (c.via !== "relay") return;
+  const bar = document.getElementById("relaybar");
+  const where = el("span", {}, `${c.place ? c.place + "'s box" : "This van's box"}, through Cerberus Cloud. Settings still need the box's PIN.`);
+  bar.replaceChildren(el("div", { class: "in" }, ""));
+  const inner = bar.firstChild;
+  if (c.return_url) inner.append(el("a", { href: c.return_url }, "← Back to Cerberus Cloud"));
+  inner.append(where);
+  bar.hidden = false;
+}).catch(() => {});
+
 applyTheme(theme);
 setView(viewFromHash());
 getJSON("/about").then((a) => { if (a.set_up === false && state.view === "now") location.hash = "#settings"; }).catch(() => {});

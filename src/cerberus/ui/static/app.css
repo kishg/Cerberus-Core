@@ -279,3 +279,57 @@ footer a { color: var(--text-2); }
 
 /* Support access is on (Core #48): impossible to miss. */
 .access .support-on { border-left: 3px solid var(--warning); padding-left: 10px; }
+
+/* ---- Cerberus brand (the beta one-pager's): near-black band with the amber mark and the spaced
+   wordmark, warm off-white ground, mono caps labels, small corners. Chart colours above stay as
+   they are (chosen for charts). Fonts: Space Grotesk, Inter and JetBrains Mono when the device
+   has them, else close system fonts; the box never fetches fonts from the internet. */
+:root {
+  --page: #F5F6F3; --surface: #FFFFFF; --text: #12161A; --text-2: #3A444C; --muted: #5A646C;
+  --grid: #D5D9D6; --axis: #B9BEBA; --ring: rgba(18, 22, 26, 0.14);
+  --warning: #F2B134; --critical: #A8321F; --good-text: #2F6B4F;
+  --amber: #F2B134; --amber-ink: #7A4F00; --band: #12161A; --band-text: #C9D1D6;
+  --font: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --display: "Space Grotesk", ui-rounded, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    --page: #0E1114; --surface: #171C20; --text: #E8EAE6; --text-2: #C9D1D6; --muted: #A3ABB0;
+    --grid: #2A3136; --axis: #3A4248; --ring: rgba(255, 255, 255, 0.10); --amber-ink: #F2B134;
+    --critical: #F2A496; --good-text: #8FD0B0; --band: #080A0C;
+  }
+}
+:root[data-theme="dark"] {
+  --page: #0E1114; --surface: #171C20; --text: #E8EAE6; --text-2: #C9D1D6; --muted: #A3ABB0;
+  --grid: #2A3136; --axis: #3A4248; --ring: rgba(255, 255, 255, 0.10); --amber-ink: #F2B134;
+  --critical: #F2A496; --good-text: #8FD0B0; --band: #080A0C;
+}
+header.band { background: var(--band); color: #FFFFFF; }
+.band-in { max-width: 960px; margin: 0 auto; padding: 12px 16px; display: flex; align-items: center;
+  justify-content: space-between; gap: 12px; }
+.wordmark { display: flex; align-items: center; gap: 10px; margin: 0; font: 700 15px/1 var(--display);
+  letter-spacing: 0.22em; color: #FFFFFF; }
+.wordmark .mark { width: 38px; height: 26px; flex: none; fill: var(--amber); }
+.where { font: 500 10.5px/1 var(--mono); letter-spacing: 0.12em; color: var(--amber); border: 1px solid #5C4A1C;
+  padding: 4px 7px; border-radius: 3px; margin-left: 4px; }
+header.band .status { color: var(--band-text); }
+header.band .theme { color: var(--band-text); background: transparent; box-shadow: 0 0 0 1px #3A444C; }
+.wrap { padding-top: 12px; }
+.relaybar { background: var(--amber); color: #12161A; font-size: 14px; }
+.relaybar .in { max-width: 960px; margin: 0 auto; padding: 8px 16px; display: flex; flex-wrap: wrap;
+  align-items: center; justify-content: space-between; gap: 4px 12px; }
+.relaybar a { color: #12161A; font-weight: 700; text-decoration: none; white-space: nowrap; }
+.relaybar a:hover { text-decoration: underline; }
+nav { border-bottom-color: var(--grid); }
+nav a[aria-current="page"] { color: var(--text); border-bottom-color: var(--amber); }
+.card { border-radius: 6px; box-shadow: none; border: 1px solid var(--grid); }
+.card h2, .finding h2 { font-family: var(--display); font-weight: 600; }
+.hero .value, .tile .value, .tyre-psi { font-family: var(--display); }
+.tile .label, th, .card .sub, .notes h3 { font: 500 11px/1.4 var(--mono); letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--amber-ink); }
+.btn { background: var(--amber); color: #12161A; border-radius: 4px; }
+.btn.quiet { background: var(--surface); color: var(--text); box-shadow: 0 0 0 1px var(--grid); }
+input, select, textarea, .note-text { border-radius: 4px !important; }
+[hidden] { display: none !important; }
+header.band { display: block; padding: 0; }
