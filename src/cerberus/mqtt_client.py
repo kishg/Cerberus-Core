@@ -46,6 +46,7 @@ class CerboMqtt:
 
     # A class default too, so a dispatcher built without __init__ has it.
     on_setting = None
+    on_any = None
 
     def __init__(
         self,
@@ -64,6 +65,7 @@ class CerboMqtt:
         on_setting: Callable[[str, object], None] | None = None,
         tls_context: ssl.SSLContext | None = None,
         own_topics: bool = True,
+        on_any: Callable[[str, bool], None] | None = None,
     ) -> None:
         self.cfg = cfg
         self.on_batteries = on_batteries
@@ -83,6 +85,8 @@ class CerboMqtt:
         # own N/R/W tree, so the availability LWT and "online" marker (which
         # live in Cerberus's namespace) must not be sent there.
         self.own_topics = own_topics
+        # Every message's topic and retain flag, before anything else (#66: what the cloud relay sends).
+        self.on_any = on_any
         # With TLS paho must be handed the hostname: the certificate is checked
         # against whatever it connects to, and an IP never matches it.
         self._tls = tls_context is not None
@@ -131,6 +135,11 @@ class CerboMqtt:
     @property
     def current_host(self) -> str:
         return self._hosts[self._current_idx]
+
+    @property
+    def target_ip(self) -> str | None:
+        """The address the client is aimed at now (for diagnosing a failed link)."""
+        return self._target_ip
 
     @property
     def is_connected(self) -> bool:
@@ -539,6 +548,11 @@ class CerboMqtt:
             log.exception("refresh/reconnect failed; watchdog will retry")
 
     def _on_message(self, client, userdata, msg) -> None:
+        if self.on_any is not None:
+            try:
+                self.on_any(msg.topic, bool(msg.retain))
+            except Exception:
+                log.exception("on_any handler raised")
         try:
             payload = json.loads(msg.payload.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError) as e:
@@ -573,6 +587,9 @@ class CerboMqtt:
                 except Exception:
                     log.exception("on_batteries handler raised")
         elif topic.endswith("/heartbeat"):
+            # A retained heartbeat from the cloud relay is only its memory of the GX, not the GX (#66).
+            if msg.retain and not self.own_topics:
+                return
             try:
                 self.on_heartbeat(int(value) if value is not None else int(time.time()))
             except Exception:

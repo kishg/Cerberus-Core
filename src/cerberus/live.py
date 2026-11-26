@@ -35,9 +35,12 @@ def snapshot(
     ac: AcState,
     capacity_fallback_ah: float | None = None,
     inverter_idle: dict | None = None,
+    gx: dict | None = None,
 ) -> dict:
     out: dict = {"v": VERSION, "ts": now, "cerbo_online": bool(cerbo_online),
-                 "bank": None, "solar": None, "ac": None}
+                 "bank": None, "solar": None, "ac": None,
+                 # The GX link in detail (cerberus.gxlink, #66): since when, why, and the cloud fallback.
+                 "gx": gx}
 
     if bank is not None and bank.packs:
         packs = sorted(bank.packs.values(), key=lambda p: p.pack_id)

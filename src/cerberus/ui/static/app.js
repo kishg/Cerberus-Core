@@ -174,13 +174,57 @@ function tile(label, value, detail, chart) {
 const DC_LOADS_WHY = { engine: "Engine running: alternator charging isn't measured",
   inverter: "Waiting for the inverter's current", unmeasured: "Something charging the batteries isn't measured" };
 
+// The GX link when it's down (cerberus.gxlink, #66), in words: since when, whether Victron's cloud is
+// filling in, and why when the box can tell. Null while the link is up, or from a collector before #66.
+const GX_HINT = {
+  no_answer: "Nothing answers at the Cerbo's address: it's off, or not on this network. Check its power, and its Wi-Fi or cable.",
+  refused: "Something answers at the Cerbo's address but refuses MQTT. Check the Cerbo's Settings > Services > MQTT, or that the address is still the Cerbo's.",
+  silent: "The box is connected to the Cerbo, but the Cerbo sends nothing. Restarting the Cerbo usually clears it.",
+};
+function gxMessage(d) {
+  const snap = d.snapshot || {}, gx = snap.gx;
+  if (!gx || gx.lan !== "down") return null;
+  const when = (ts) => fmtTime(ts, { year: "numeric", month: "numeric", day: "numeric" }) === fmtTime(d.now, { year: "numeric", month: "numeric", day: "numeric" }) ? hhmm(ts) : dayTime(ts);
+  const since = gx.lan_last ? `since ${when(gx.lan_last)}` : "since the box started";
+  const times = [snap.bank?.ts, snap.solar?.ts, snap.ac?.ts].filter(Boolean);
+  const last = times.length ? `last reading ${when(Math.max(...times))}` : "no readings yet";
+  let short, full;
+  if (gx.fallback === "delivering") {
+    short = "Via Victron's cloud · live";
+    full = `Cerbo not reachable on this network ${since} · using Victron's cloud · live`;
+  } else if (gx.fallback === "waiting" || gx.fallback === "connecting") {
+    short = `Cerbo offline ${since}`;
+    full = `Cerbo not reachable on this network ${since} · trying Victron's cloud · ${last}`;
+  } else if (gx.fallback === "no_data") {
+    short = `Cerbo offline ${since}`;
+    full = `Cerbo offline ${since} · Victron's cloud has nothing from it either · ${last}`;
+  } else {
+    short = `Cerbo offline ${since}`;
+    full = `Cerbo offline ${since} · ${gx.fallback === "no_token" ? "cloud fallback has no VRM token" : "cloud fallback off"} · ${last}`;
+  }
+  // Through the cloud it's plainly on: then the only question is this network.
+  const hint = gx.fallback === "delivering" && gx.cause === "no_answer"
+    ? "The Cerbo is online but not on this network. Check its Wi-Fi or cable to the box's network." : GX_HINT[gx.cause] || null;
+  return { short, full, hint };
+}
+
+function renderGx(m) {
+  const box = document.getElementById("gx");
+  if (!box) return;
+  box.hidden = !m;
+  if (m) box.replaceChildren(el("div", {}, m.full), ...(m.hint ? [el("div", { class: "hint" }, m.hint)] : []));
+}
+
 function renderNow(d) {
   state.tz = d.tz || undefined;
   state.unit = d.temp_unit || state.unit;
   const snap = d.snapshot || {};
   const bank = snap.bank, solar = snap.solar, ac = snap.ac;
   const status = document.getElementById("status");
+  const gx = d.collector_up ? gxMessage(d) : null;
+  renderGx(gx);
   if (!d.collector_up) statusLine(status, "critical", snap.ts ? `Collector stopped, last seen ${ago(snap.ts, d.now)}` : "Collector not running");
+  else if (gx) statusLine(status, "warning", gx.short);
   else if (!d.cerbo_online) statusLine(status, "warning", "Cerbo offline");
   else if (!d.live) statusLine(status, "warning", bank ? `Battery data ${ago(bank.ts, d.now)}` : "No battery data yet");
   else statusLine(status, "good", `Live · ${hhmm(d.now)}`);

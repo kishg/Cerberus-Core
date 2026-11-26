@@ -45,6 +45,7 @@ ALLOWED = {
     "system.cpu_temp_c",
     "sources", "sources.key", "sources.status", "sources.age_s",
     "coverage_today_pct",
+    "gx", "gx.lan", "gx.cause", "gx.down_s", "gx.fallback",      # the GX link (#66): times only
 }
 
 

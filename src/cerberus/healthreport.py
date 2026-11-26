@@ -144,6 +144,23 @@ def restarts_since(conn: sqlite3.Connection, since: int) -> int | None:
     return int(row[0]) if row else 0
 
 
+def gx_link(conn: sqlite3.Connection, now: int) -> dict | None:
+    """The GX link from the collector's live view (#66): up or down, how long, why, and the cloud
+    fallback. Times only: never an address."""
+    try:
+        row = conn.execute("SELECT value FROM kv WHERE key = 'live.snapshot'").fetchone()
+        gx = (json.loads(row[0]) or {}).get("gx") if row else None
+    except (sqlite3.Error, ValueError, TypeError, AttributeError):
+        return None
+    if not isinstance(gx, dict):
+        return None
+    down = gx.get("lan") == "down"
+    last = gx.get("lan_last")
+    return {"lan": gx.get("lan"), "cause": gx.get("cause") if down else None,
+            "down_s": max(0, now - int(last)) if down and isinstance(last, (int, float)) else None,
+            "fallback": gx.get("fallback") if down else None}
+
+
 # -- the report -----------------------------------------------------------------
 
 def build(conn: sqlite3.Connection, now: int, *, device_id: str, interval_s: int,
@@ -174,6 +191,7 @@ def build(conn: sqlite3.Connection, now: int, *, device_id: str, interval_s: int
             "cpu_temp_c": cpu_temp_c(thermal_root),
         },
         "sources": sources,
+        "gx": gx_link(conn, now),
         "coverage_today_pct": coverage[-1][1] if coverage else None,
     }
 
