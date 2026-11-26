@@ -743,7 +743,7 @@ function renderStorage(s) {
   };
   if (s.on) {
     const since = s.since ? new Date(s.since * 1000).toLocaleDateString() : "";
-    let text = `In storage${since ? ` since ${since}` : ""}`;
+    let text = `In storage${since ? ` since ${since}` : ""}${s.by === "cloud" ? " (set from Cerberus Cloud)" : ""}`;
     if (s.until) text += s.due_passed ? `. It was due to end ${s.until}: back on the road?` : `, until ${s.until}`;
     text += ". Gaps are expected; battery and temperature warnings stay on.";
     box.append(el("span", {}, text));

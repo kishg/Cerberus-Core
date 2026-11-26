@@ -524,9 +524,11 @@ def make_handler(app: App):
                     try:
                         if body.get("on") is True:
                             st = storage.start(app.config_path, now, until=body.get("until"),
-                                               online=body.get("online") is True)
+                                               online=body.get("online") is True,
+                                               by="cloud" if local else "owner")
                         elif body.get("on") is False:
-                            st = storage.end(app.config_path, now)
+                            st = storage.end(app.config_path, now, by="cloud" if local else "owner",
+                                             reason="cloud" if local else "owner")
                         else:
                             return self._json(400, {"error": 'expected {"on": true|false}'})
                     except storage.StorageError as err:
