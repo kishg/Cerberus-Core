@@ -12,7 +12,7 @@ import ssl
 from types import SimpleNamespace
 
 import cerberus.__main__ as main_mod
-from cerberus import vrm_cloud
+from cerberus import gxlink, vrm_cloud
 from cerberus.config import MqttConfig
 from cerberus.mqtt_client import CerboMqtt
 
@@ -109,7 +109,7 @@ def _collector(monkeypatch, email=lambda tok: "me@example.com"):
         _on_batteries=noop, _on_heartbeat=noop, _on_alarm=noop, _on_ac=noop,
         _on_solar=noop, _on_battery_health=noop, _on_temperature=noop, _on_wifi=noop,
         _on_location=noop,
-        _on_dc=noop, settings=None,
+        _on_dc=noop, settings=None, gx=gxlink.LinkWatch(True, True, 180),
     )
 
 
@@ -126,6 +126,7 @@ def test_starts_only_after_the_local_link_has_been_down_long_enough(monkeypatch)
     assert c.cloud is FakeCloud.instances[0] and c.cloud.started
     assert c.cloud.cfg.port == 8883 and c.cloud.kw["own_topics"] is False
     assert "on_ready" not in c.cloud.kw     # HA discovery belongs to the local link
+    assert c.gx.cloud_started == 1180 and c.cloud.kw["on_any"] == c.gx.cloud_message     # #66
     tick(c, 1300)
     assert len(FakeCloud.instances) == 1
 
@@ -138,6 +139,7 @@ def test_stops_as_soon_as_local_reconnects(monkeypatch):
     c.mqtt.is_connected = True
     tick(c, 210)
     assert cloud.stopped and c.cloud is None and c._local_down_since is None
+    assert c.gx.cloud_started is None
 
 
 def test_a_brief_local_blip_never_starts_it(monkeypatch):

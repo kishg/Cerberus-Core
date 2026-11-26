@@ -18,6 +18,7 @@ from . import config as cfg_mod
 from . import detect as detect_mod
 from . import detectors as detectors_mod
 from . import envfile
+from . import gxlink
 from . import phonefix
 from . import storage as storage_mod
 from . import drives as drives_mod
@@ -192,7 +193,7 @@ class Cerberus:
         self.mqtt = CerboMqtt(
             cfg.mqtt,
             on_batteries=self._on_batteries,
-            on_heartbeat=self._on_heartbeat,
+            on_heartbeat=self._on_lan_heartbeat,
             on_alarm=self._on_alarm,
             on_ac=self._on_ac,
             on_solar=self._on_solar,
@@ -232,6 +233,10 @@ class Cerberus:
         self.cloud: CerboMqtt | None = None
         self._local_down_since: float | None = None
         self._cloud_next_try: float = 0.0
+        # What's true about the GX link, for the status line, HA and the health report (#66).
+        self.gx = gxlink.LinkWatch(cfg.mqtt.cloud_fallback, bool(self.vrm_token), cfg.mqtt.cloud_after_seconds)
+        self._gx_said: tuple | None = None
+        self.gx_view: dict | None = None
 
     def _on_ha_ready(self) -> None:
         """HA broker (re)connected: discovery first so entities exist before
@@ -418,6 +423,7 @@ class Cerberus:
                 capacity_fallback_ah=self.cfg.bank.capacity_ah,
                 inverter_idle=inverter_idle_mod.status(
                     replace(self.cfg.inverter_idle, tz=self.van_tz()), self.idle_state, now),
+                gx=self.gx_view,
             )
             self.db.set_kv(live_mod.KV_SNAPSHOT, live_mod.dumps(snap))
         except Exception:
@@ -641,6 +647,29 @@ class Cerberus:
 
     def _on_heartbeat(self, value: int) -> None:
         self.last_heartbeat_ts = int(time.time())
+
+    def _on_lan_heartbeat(self, value: int) -> None:
+        self.gx.lan_heartbeat()
+        self._on_heartbeat(value)
+
+    def _gx_tick(self, now: float | None = None) -> dict:
+        """The GX link's state (cerberus.gxlink): probe why it's down, and tell HA when it changes."""
+        now = time.time() if now is None else now
+        self.gx.cloud_connected = self.cloud is not None and self.cloud.is_connected
+        self.gx.maybe_probe(now, self.mqtt.target_ip, self.cfg.mqtt.port, connected=self.mqtt.is_connected)
+        view = self.gx.view(now, self._local_down_since)
+        said = (view["lan"], view["cause"], view["fallback"])
+        if said != self._gx_said:
+            if self._gx_said is not None:
+                log.warning("GX link: %s%s%s", view["lan"], f", {view['cause']}" if view["cause"] else "",
+                            f", cloud fallback {view['fallback']}" if view["fallback"] else "")
+            try:
+                self.publisher.publish_cerbo_link(view)
+            except Exception:
+                log.exception("publish_cerbo_link failed")
+            self._gx_said = said
+        self.gx_view = view
+        return view
 
     def _on_alarm(self, topic: str, value: int | None) -> None:
         alarm_id = parse_alarm_topic(topic)
@@ -885,6 +914,10 @@ class Cerberus:
                 self._inverter_idle_tick(online)
                 self.fast.tick()
                 self._phone_tick()
+                try:
+                    self._gx_tick()
+                except Exception:
+                    log.exception("GX link tick failed")
                 self._snapshot_tick(online)
                 self._uptime_tick()
                 self._findings_tick()
@@ -917,6 +950,7 @@ class Cerberus:
                 log.warning("local MQTT back; stopping VRM cloud fallback")
                 self.cloud.stop()
                 self.cloud = None
+                self.gx.cloud_down()
             return
         if self._local_down_since is None:
             self._local_down_since = now
@@ -942,8 +976,10 @@ class Cerberus:
             on_setting=self.settings.on_message if self.settings else None,
                 tls_context=vrm_cloud.tls_context(),
                 own_topics=False,
+                on_any=self.gx.cloud_message,
             )
             self.cloud.start()
+            self.gx.cloud_up(now)
             log.warning("local MQTT down %.0fs; VRM cloud fallback started (%s)",
                         now - self._local_down_since, ccfg.host)
         except Exception:

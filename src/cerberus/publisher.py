@@ -139,12 +139,15 @@ class Publisher:
                     icon="mdi:percent",
                 ))
 
-        ds.append(self._binary_sensor(
+        online = self._binary_sensor(
             object_id="cerbo_online",
             name="Cerbo Online",
             state_topic=f"{ns}/cerbo_online",
             device_class="connectivity",
-        ))
+        )
+        # Since when, why, and Victron's cloud fallback (#66), as the sensor's attributes.
+        online[2]["json_attributes_topic"] = f"{ns}/cerbo_link"
+        ds.append(online)
 
         # AC side. power device_class + measurement state_class means HA can
         # feed these straight into an energy dashboard / long-term statistics.
@@ -430,6 +433,10 @@ class Publisher:
             "on" if online else "off",
             retain=True,
         )
+
+    def publish_cerbo_link(self, view: dict) -> None:
+        """The GX link's detail (cerberus.gxlink), as the cerbo_online sensor's attributes."""
+        self.mqtt.publish(f"{self.namespace}/cerbo_link", json.dumps(view), retain=True)
 
     def publish_event(self, event: Event) -> None:
         # latest-event topic for HA automations + logbook
