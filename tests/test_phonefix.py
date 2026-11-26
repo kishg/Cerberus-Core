@@ -37,6 +37,10 @@ TS_HOST = "vanbox.tail1234.ts.net"
     ("100.101.1.2", {"Host": "100.125.190.101:8088"}, "tailscale"),
     ("fd7a:115c:a1e0::5", {}, "tailscale"),
     ("not-an-ip", {}, "tailscale"),
+    # A cloud relay's agent on the box, forwarding a remote request: never the box, whatever the Host.
+    ("127.0.0.1", {"Host": "localhost:8088", "X-Cerberus-Via": "relay"}, "relay"),
+    ("::1", {"Host": "abc.box.example", "X-Cerberus-Via": "relay", "X-Forwarded-For": "203.0.113.9"}, "relay"),
+    ("192.168.1.20", {"Host": "192.168.1.86:8088", "X-Cerberus-Via": "relay"}, "lan"),   # only from loopback
 ])
 def test_client_kind(addr, headers, kind):
     assert phonefix.client_kind(addr, headers) == kind
@@ -210,3 +214,10 @@ def test_phone_on_the_lan_through_tailscale_serve(server, monkeypatch):
               headers={"Host": TS_HOST, "X-Forwarded-For": "100.65.1.1",
                        "Content-Type": "application/json", "Authorization": f"Bearer {tok}"})
     assert json.loads(c.getresponse().read())["accepted"] is False
+
+
+def test_a_relayed_phone_counts_only_while_moving():
+    fix = {"lat": 12.3456, "lon": -98.7654, "accuracy_m": 10, "ts": 1_800_000_000}
+    ok, why = phonefix.judge(phonefix.RELAY, fix, 1_800_000_000, None)
+    assert not ok and "Cerberus Cloud" in why
+    assert phonefix.judge(phonefix.RELAY, fix, 1_800_000_000, "engine charging")[0]

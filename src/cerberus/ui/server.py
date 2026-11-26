@@ -624,7 +624,7 @@ def make_handler(app: App):
                 if not why:
                     return self._json(200, {"accepted": False, "via": kind, "reason": (
                         "The van is in storage, so this phone's position isn't used unless the van is moving.")})
-            if kind == phonefix.TAILSCALE:
+            if kind in (phonefix.TAILSCALE, phonefix.RELAY):
                 try:
                     conn = connect_ro(app.db_path)
                     try:

@@ -28,6 +28,11 @@ client_kind() treats a loopback peer as the box only when the Host header
 names localhost and no proxy headers are present; the same test guards
 setting the first settings PIN.
 
+**Through a cloud relay.** A relay's agent runs on the box and forwards remote requests from
+loopback, marking each ``X-Cerberus-Via: relay``. client_kind() reports those as RELAY: never the
+box (so never the first PIN, nor the box's local client) and, like Tailscale, with the van only
+while the van is moving.
+
 Fixes stay on the box: only the weather request carries coordinates off it,
 as it already did.
 """
@@ -49,6 +54,7 @@ MOVING_WINDOW_S = 300        # engine activity within this counts as "moving"
 SNAPSHOT_FRESH_S = 60
 
 BOX, LAN, TAILSCALE = "box", "lan", "tailscale"
+RELAY = "relay"     # through a cloud relay's agent on the box: remote, never the box itself
 # Over Tailscale, but on the van's network (see tailnet_peer and
 # ui.access.peer_on_lan).
 TAILSCALE_LOCAL = "tailscale_local"
@@ -56,7 +62,7 @@ _TAILNET_V4 = ipaddress.ip_network("100.64.0.0/10")
 _TAILNET_V6 = ipaddress.ip_network("fd7a:115c:a1e0::/48")
 _LOCAL_HOSTS = {"localhost", "127.0.0.1", "[::1]", "::1"}
 _PROXY_HEADERS = ("X-Forwarded-For", "Forwarded", "X-Real-IP", "Tailscale-User-Login",
-                  "Tailscale-User-Name", "Tailscale-Headers-Info")
+                  "Tailscale-User-Name", "Tailscale-Headers-Info", "X-Cerberus-Via")
 
 
 def _host_name(host_header: str | None) -> str:
@@ -68,7 +74,8 @@ def _host_name(host_header: str | None) -> str:
 
 def client_kind(addr: str, headers) -> str:
     """BOX (a browser on the box itself), LAN (the van's network) or
-    TAILSCALE (remote, directly or through `tailscale serve`)."""
+    TAILSCALE (remote, directly or through `tailscale serve`), or RELAY (remote, forwarded by a
+    cloud relay's agent running on the box, which marks its requests ``X-Cerberus-Via: relay``)."""
     try:
         ip = ipaddress.ip_address(addr.split("%")[0])
     except ValueError:
@@ -76,6 +83,8 @@ def client_kind(addr: str, headers) -> str:
     if getattr(ip, "ipv4_mapped", None):
         ip = ip.ipv4_mapped
     if ip.is_loopback:
+        if headers.get("X-Cerberus-Via"):           # a relay's agent: someone, somewhere else
+            return RELAY
         proxied = any(headers.get(h) for h in _PROXY_HEADERS)
         if proxied or _host_name(headers.get("Host")) not in _LOCAL_HOSTS:
             return TAILSCALE
@@ -152,7 +161,8 @@ def judge(kind: str, fix: dict, now: int, moving_why: str | None) -> tuple[bool,
                       "(through Tailscale), so it's with the van.")
     if moving_why:
         return True, f"The van is moving ({moving_why}), so the phone is taken to be with it."
-    return False, ("Not used: this phone is connected from outside the van's network and "
+    return False, ("Not used: this phone is connected from outside the van's network"
+                   + (" (through Cerberus Cloud)" if kind == RELAY else "") + " and "
                    "the van isn't moving, so it may not be with the van.")
 
 

@@ -163,6 +163,17 @@ def test_changing_settings_needs_a_session(server, cfg):
     assert code == 401 and not cfg_mod.setup_path(cfg).exists()
 
 
+def test_a_relayed_request_cannot_set_the_first_pin(server, cfg):
+    # From loopback, as a relay's agent forwards it, with a local-looking Host: still refused.
+    r = urllib.request.Request(server + "/api/v1/auth/pin", data=json.dumps({"pin": "2468"}).encode(),
+                               method="POST", headers={"Content-Type": "application/json",
+                                                       "Host": "127.0.0.1", "X-Cerberus-Via": "relay"})
+    with pytest.raises(urllib.error.HTTPError) as e:
+        urllib.request.urlopen(r, timeout=5)
+    assert e.value.code == 403
+    assert _req(server + "/api/v1/about")[1]["pin_set"] is False
+
+
 def test_first_pin_then_save(server, cfg):
     code, r = _req(server + "/api/v1/auth/pin", {"pin": "2468"})      # tests run on loopback
     assert code == 200 and r["token"]
