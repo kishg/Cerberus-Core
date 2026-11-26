@@ -35,8 +35,11 @@ cloud relay later):
                                   used for the van's only while it is with the van
                                   (cerberus.phonefix); needs a session
   POST /api/v1/settings           {"changes": {key: value}}; needs a session
+  POST /api/v1/cloud/link         the box's local client only (cerberus.localclient): store a cloud
+                                  service's token and set health_report / sync to its https addresses
+  POST /api/v1/cloud/unlink       the local client only: forget the token, health reports and sync off
   POST /api/v1/storage            {"on": true, "until"?: "YYYY-MM-DD", "online"?: bool} or {"on": false};
-                                  needs a session
+                                  needs a session, or the box's local client
   POST /api/v1/inverter/on        {}: turn the inverter back on from charger-only
                                   (cerberus.inverter_idle); needs a session
   POST /api/v1/notes              {key, text, title, num?, kind?}: a note on a finding
@@ -89,7 +92,7 @@ from urllib.parse import parse_qs, quote, urlsplit
 
 from .. import config as cfg_mod
 from .. import blescan, detect, firstrun, health, learn, location, notes, phonefix, status
-from .. import healthreport, inverter_idle, service_log, storage, syncer, victron_imports
+from .. import healthreport, inverter_idle, localclient, service_log, storage, syncer, victron_imports
 from .. import settings as settings_mod
 from . import access, api, auth
 
@@ -444,7 +447,19 @@ def make_handler(app: App):
             if body is None:
                 return self._json(400, {"error": "expected a JSON object body"})
             addr = self.client_address[0]
+            local = localclient.authorized(app.config_path, addr, self.headers)
             try:
+                if ep in ("cloud/link", "cloud/unlink"):
+                    # Only the box's own local client (cerberus.localclient), never a person or the network.
+                    if not local:
+                        return self._json(403, {"error": "only the box's local client can link it to a cloud service"})
+                    try:
+                        done = (localclient.link(app.config_path, body) if ep == "cloud/link"
+                                else localclient.unlink(app.config_path))
+                    except localclient.LocalClientError as err:
+                        return self._json(400, {"error": str(err)})
+                    app.reload()
+                    return self._json(200, done)
                 if ep == "auth/login":
                     return self._json(200, {"token": app.sessions.login(body.get("pin"), addr)})
                 if ep == "auth/logout":
@@ -488,7 +503,7 @@ def make_handler(app: App):
                         return self._json(401, {"error": "sign in (Settings) to import settings files"})
                     return self._victron_post(ep, body, addr)
                 if ep == "storage":
-                    if not app.sessions.valid(self._token()):
+                    if not (local or app.sessions.valid(self._token())):
                         return self._json(401, {"error": "enter the PIN to change storage mode"})
                     now = int(time.time())
                     try:
@@ -501,7 +516,7 @@ def make_handler(app: App):
                             return self._json(400, {"error": 'expected {"on": true|false}'})
                     except storage.StorageError as err:
                         return self._json(400, {"error": str(err)})
-                    log.info("storage mode %s from %s", "on" if st.on else "off", addr)
+                    log.info("storage mode %s from %s", "on" if st.on else "off", "the local client" if local else addr)
                     return self._json(200, {"storage": storage.view(None, app.config_path, now,
                                                                     location.local(now, None).date())})
                 if ep == "inverter/on":
