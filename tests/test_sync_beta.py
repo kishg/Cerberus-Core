@@ -270,6 +270,45 @@ def test_notes_retry_after_a_failure(db, tmp_path):
     assert tries == ["notes", "notes"]
 
 
+# -- the van's profile (cloud #23) -------------------------------------------------------
+
+def test_profile_goes_as_one_document_on_change(db, tmp_path):
+    raw = yaml.safe_load(REPO_CONFIG.read_text())
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text(yaml.safe_dump(raw))
+    s = Syncer(_cfg(tables=("events",)), db, device_id=DEVICE)
+    s.config_path = cfg
+    db.set_kv("van.timezone", "America/Denver")
+    bodies = []
+    with patch.object(s, "_send", side_effect=lambda body, what: bodies.append(body) or True):
+        s.tick()
+        s.tick()                                   # unchanged: not sent again
+        raw.setdefault("bank", {})["capacity_ah"] = 450
+        cfg.write_text(yaml.safe_dump(raw))
+        s.tick()
+    docs = [b["document"] for b in bodies if b.get("kind") == "profile"]
+    assert len(docs) == 2
+    want = cfg_mod.load_ui(cfg)
+    assert docs[1]["capacity_ah"] == 450 and docs[1]["pack_count"] == want.pack_count
+    assert docs[0]["time_zone"] == (want.timezone or "America/Denver")
+    assert set(docs[0]["data_sources"]) >= {"victron_gx_mqtt", "battery_bluetooth"}
+    flat = json.dumps(docs)
+    for leak in ("lat", "lon", "password", "token", "host"):
+        assert f'"{leak}' not in flat
+
+
+def test_no_config_no_profile_and_a_bad_one_waits(db, tmp_path):
+    s = Syncer(_cfg(tables=("events",)), db)
+    bodies = []
+    with patch.object(s, "_send", side_effect=lambda body, what: bodies.append(body) or True):
+        s.tick()                                   # no config path: nothing
+        bad = tmp_path / "config.yaml"
+        bad.write_text("bank: [not, a, mapping")
+        s.config_path = bad
+        s.tick()                                   # unreadable: skipped, tried again later
+    assert not [b for b in bodies if b.get("kind") == "profile"]
+
+
 # -- on the wire, and in the UI ---------------------------------------------------------
 
 class _Sink:

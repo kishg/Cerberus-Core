@@ -872,6 +872,7 @@ class Cerberus:
         if getattr(self, "config_path", None):
             from . import notes as notes_mod
             self.syncer.notes_path = notes_mod.path_for(self.config_path)
+            self.syncer.config_path = self.config_path
         self.syncer.start()
         # Opt-in box health reports (off unless health_report.enabled).
         self.health_reporter = healthreport_mod.Reporter(
