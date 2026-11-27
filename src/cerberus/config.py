@@ -75,7 +75,8 @@ class SyncConfig:
 # The beta's opt-in set (beta agreement): findings and events first, then the data detectors and
 # Co-Pilot need. High-rate tables (cell_samples, pack_ble_samples) stay on the box unless added.
 BETA_SYNC_TABLES = ("events", "finding_log", "battery_samples", "solar_samples", "solar_days", "drives",
-                    "ac_samples", "cabin_samples", "temperature_samples", "device_settings", "weather_samples")
+                    "ac_samples", "cabin_samples", "temperature_samples", "device_settings", "weather_samples",
+                    "collector_uptime", "cerbo_wifi_samples")
 HIGH_RATE_SYNC_TABLES = ("cell_samples", "pack_ble_samples", "obd_samples")
 
 
