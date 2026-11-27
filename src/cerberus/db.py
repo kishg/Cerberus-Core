@@ -988,6 +988,10 @@ class Db:
         "obd_samples": ("ts", "ecu", "name"),
         "cell_samples": ("ts", "pack_id", "cell_idx"),
         "pack_ble_samples": ("ts", "pack_id"),
+        # What cerberus.health reads to tell a gap's cause (box off, network, Cerbo), so the Cloud's
+        # copy explains gaps the way the box does (cloud #23).
+        "collector_uptime": ("ts",),
+        "cerbo_wifi_samples": ("ts",),
     }
     _SYNC_TABLES = tuple(SYNC_KEYS)
     # Tables whose rows change after they're written: followed by a change counter, not rowid.
