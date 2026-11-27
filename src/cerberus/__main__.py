@@ -659,10 +659,13 @@ class Cerberus:
         self.gx.maybe_probe(now, self.mqtt.target_ip, self.cfg.mqtt.port, connected=self.mqtt.is_connected)
         view = self.gx.view(now, self._local_down_since)
         said = (view["lan"], view["cause"], view["fallback"])
+        # The log gets the link going down or up and the fallback's stages; a cause that flips while
+        # the link stays down (silent / no_answer, re-probed every minute) is HA's, not the log's.
+        logged = (view["lan"], view["fallback"])
+        if self._gx_said is not None and logged != self._gx_said[::2]:
+            log.warning("GX link: %s%s%s", view["lan"], f", {view['cause']}" if view["cause"] else "",
+                        f", cloud fallback {view['fallback']}" if view["fallback"] else "")
         if said != self._gx_said:
-            if self._gx_said is not None:
-                log.warning("GX link: %s%s%s", view["lan"], f", {view['cause']}" if view["cause"] else "",
-                            f", cloud fallback {view['fallback']}" if view["fallback"] else "")
             try:
                 self.publisher.publish_cerbo_link(view)
             except Exception:
