@@ -29,7 +29,11 @@ weak or metered link:
   is followed by a change counter (``sync_seq``), not by rowid.
 
 The owner's notes on findings (``.cerberus-notes.json``) go as one document
-whenever they change.
+whenever they change. So does the van's profile (``van_profile``): what the
+system is, its packs and capacity, which data sources are on, and its time
+zone, so the Cloud's Co-Pilot reads the data the way the box does (cloud #23).
+No position: the time zone is the closest it comes, and it says no more than
+the times in every row already do.
 
 We use stdlib urllib so the dependency footprint stays paho + pyyaml.
 """
@@ -59,6 +63,32 @@ PROMPT_MAX_BATCHES = 20                 # per prompt tick: a backlog of events d
 METERED_FACTOR = 4
 KV_LAST = "sync.last"
 KV_NOTES_HASH = "sync.notes_hash"
+KV_PROFILE_HASH = "sync.profile_hash"
+
+
+def van_profile(config_path: str | Path, kv_timezone: str | None = None) -> dict:
+    """The van, as Co-Pilot's tools describe it (cerberus_copilot.tools.open_van), from config.yaml
+    and setup.yaml. The time zone is the configured one, else the one the box worked out."""
+    from . import config as cfg_mod
+    from .profile import LIFEPO4
+    cfg, ui = cfg_mod.load(config_path), cfg_mod.load_ui(config_path)
+    return {
+        "system": f"{cfg.system.nominal_v} V {cfg.system.chemistry}",
+        "lithium": cfg.system.chemistry == LIFEPO4,
+        "bank_source": cfg.bank.source,
+        "pack_count": ui.pack_count,
+        "capacity_ah": ui.capacity_ah,
+        "time_zone": ui.timezone or kv_timezone,
+        "path_limit_mohm": ui.path_limit_mohm,
+        "full_remind_days": ui.full_remind_days,
+        "data_sources": {
+            "victron_gx_mqtt": True,
+            "battery_bluetooth": cfg.ble.enabled,
+            "obd": bool(getattr(cfg.obd, "enabled", False)),
+            "weather_forecast": cfg.weather.enabled,
+            "cabin_sensor_cloud": cfg.govee_cloud.enabled,
+        },
+    }
 
 # Never sent unless sync.share_position is on.
 POSITION_COLUMNS = frozenset({"lat", "lon", "position_source"})
@@ -115,6 +145,7 @@ class Syncer:
         self.device_id = device_id
         self.core_version = core_version
         self.notes_path = Path(notes_path) if notes_path else None
+        self.config_path: Path | None = None        # for the van's profile; set by the collector
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._last_samples = 0.0
@@ -179,6 +210,7 @@ class Syncer:
             for table in self.sample_tables():
                 reports.append(self._sync_table(table, totals))
             self._sync_notes(totals)
+            self._sync_profile(totals)
         self._remember(totals)
         return self._merge(reports)
 
@@ -250,6 +282,29 @@ class Syncer:
             self.db.set_kv(KV_NOTES_HASH, digest)
             if totals is not None:
                 totals.sent["notes"] = 1
+        elif totals is not None:
+            totals.ok = False
+
+    def _sync_profile(self, totals: _Totals | None = None) -> None:
+        """The van's profile, as one document, whenever it changed."""
+        if not self.config_path:
+            return
+        try:
+            from .location import KV_TIMEZONE
+            document = van_profile(self.config_path, self.db.get_kv(KV_TIMEZONE))
+        except Exception as e:                       # a config being edited: try again next time
+            log.warning("profile not synced: %s", e)
+            return
+        digest = hashlib.sha256(json.dumps(document, sort_keys=True).encode()).hexdigest()
+        if self.db.get_kv(KV_PROFILE_HASH) == digest:
+            return
+        body = {"format": FORMAT, "version": VERSION,
+                "box": {"id": self.device_id, "core_version": self.core_version},
+                "kind": "profile", "document": document}
+        if self._send(body, "profile"):
+            self.db.set_kv(KV_PROFILE_HASH, digest)
+            if totals is not None:
+                totals.sent["profile"] = 1
         elif totals is not None:
             totals.ok = False
 
