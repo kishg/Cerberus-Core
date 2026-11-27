@@ -138,3 +138,26 @@ def test_collector_tells_ha_only_when_the_link_changes():
     assert [v["lan"] for v in sent] == ["ok"]
     main_mod.Cerberus._gx_tick(c, now=1100)                   # the heartbeat is a minute old
     assert [v["lan"] for v in sent] == ["ok", "down"] and c.gx_view["fallback"] == "waiting"
+
+
+def test_a_flipping_cause_is_not_logged(caplog):
+    import logging
+    import cerberus.__main__ as main_mod
+    sent = []
+    c = SimpleNamespace(gx=watch(), cloud=None, _local_down_since=None, _gx_said=None, gx_view=None,
+                        mqtt=SimpleNamespace(target_ip="192.0.2.60", is_connected=False),
+                        cfg=SimpleNamespace(mqtt=SimpleNamespace(port=1883)),
+                        publisher=SimpleNamespace(publish_cerbo_link=sent.append))
+    c.gx._probed = 10_000
+    c.gx.lan_heartbeat(now=1000)
+    main_mod.Cerberus._gx_tick(c, now=1010)
+    with caplog.at_level(logging.WARNING, logger="cerberus"):
+        main_mod.Cerberus._gx_tick(c, now=1100)               # down: one line
+        for i, cause in enumerate(["silent", None, "no_answer", "silent"]):
+            c.gx.cause = cause
+            main_mod.Cerberus._gx_tick(c, now=1110 + i)        # the cause flips; the log stays quiet
+        c.gx.lan_heartbeat(now=1200)
+        main_mod.Cerberus._gx_tick(c, now=1201)               # back: one line
+    lines = [r.getMessage() for r in caplog.records if r.getMessage().startswith("GX link")]
+    assert len(lines) == 2 and lines[0].startswith("GX link: down") and lines[1] == "GX link: ok"
+    assert len(sent) == 7                                      # HA still hears every change
