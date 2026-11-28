@@ -1310,8 +1310,94 @@ async function loadSettings() {
     renderBluetooth(d.signed_in);
     renderPhone(d.signed_in);
     renderVictron(d.signed_in);
+    getJSON("/wifi").then((w) => renderWifi(w, d.signed_in)).catch(() => {});
     getJSON("/sync").then(renderSync).catch(() => {}).then(() => getJSON("/health-report")).then(renderHealthReport).catch(() => {});
   } catch (err) { console.error(err); }
+}
+
+// ------------------------------------------------------------ The box's own Wi-Fi network (Core #53)
+
+// How a phone in the van reaches Cerberus with no router: the network's name, its address, the password
+// (with the PIN), and a new password. On and off, and the channel, are ordinary settings above.
+const WIFI_STATE = { on: "On", off: "Off", unavailable: "Not available on this box", error: "Not working",
+  unknown: "Not reported yet" };
+function renderWifi(w, signedIn) {
+  const form = document.getElementById("settings-form");
+  if (!form || form.querySelector(".wifi")) return;
+  const card = el("section", { class: "card set-group wifi" });
+  card.append(el("h2", {}, "Box Wi-Fi network"));
+  const state = !w.enabled ? "Off" : (WIFI_STATE[w.state] || w.state);
+  card.append(el("p", {}, w.state === "on"
+    ? `${state}: ${w.ssid}, ${w.security || "WPA2"}, channel ${w.channel}. ${w.clients ? `${w.clients} phone${w.clients === 1 ? "" : "s"} joined.` : "No phones joined."}`
+    : `${state}${w.error ? `: ${w.error}` : "."}`));
+  card.append(el("p", { class: "help" },
+    "In the van with no router or no internet, join this network and open " + (w.url || "http://10.42.0.1:8088") +
+    ". Its name, password and QR codes are on the label on the box. Phones on it reach these screens only, " +
+    "and keep their mobile data for everything else."));
+  if (w.on_label === false) {
+    card.append(el("p", { class: "warn" },
+      "The password isn't the one on the box's label any more, so the label won't let anyone join. " +
+      "Keep the new one somewhere safe, or go back to the label's."));
+  }
+  if (w.state === "on" || w.enabled) {
+    if (!signedIn || !w.password) {
+      card.append(el("p", { class: "help" }, "Enter the PIN to see the password."));
+    } else {
+      const pw = el("code", { class: "wifi-pw" }, w.password);
+      const again = el("button", { type: "button", class: "link-btn" }, "New password");
+      const msg = el("span", { class: "help" });
+      again.addEventListener("click", async () => {
+        if (again.dataset.sure !== "1") {
+          again.dataset.sure = "1";
+          again.textContent = "New password? The box's label will stop working";
+          return;
+        }
+        again.disabled = true;
+        try {
+          await postJSON("/wifi/password", {});
+          const fresh = await getJSON("/wifi");
+          pw.textContent = fresh.password || "";
+          msg.textContent = " Changed. The network restarts with it in a few seconds.";
+          setTimeout(renderWifiAgain, 6000);                     // then the new QR code
+          again.textContent = "New password"; delete again.dataset.sure;
+        } catch (e) { msg.textContent = ` ${e.message}`; }
+        again.disabled = false;
+      });
+      const row = el("p", {});
+      row.append("Password: ", pw, " ", again, msg);
+      card.append(row);
+      if (w.on_label === false) {
+        const back = el("button", { type: "button", class: "link-btn" }, "Use the label's password again");
+        back.addEventListener("click", async () => {
+          back.disabled = true;
+          try {
+            await postJSON("/wifi/password", { label: true });
+            msg.textContent = " Back to the label's password. The network restarts with it in a few seconds.";
+            setTimeout(renderWifiAgain, 6000);
+          } catch (e) { msg.textContent = ` ${e.message}`; back.disabled = false; }
+        });
+        card.append(el("p", {}, back));
+      }
+      // The QR code: point a phone's camera at it to join (it carries the password, so only after the PIN).
+      if (w.state === "on") {
+        const qr = el("img", { class: "wifi-qr", alt: `QR code to join ${w.ssid}` });
+        const t = token();
+        fetch(API + "/wifi/qr.svg", { cache: "no-store", headers: t ? { Authorization: `Bearer ${t}` } : {} })
+          .then((r) => r.ok ? r.blob() : Promise.reject(new Error(`HTTP ${r.status}`)))
+          .then((b) => { qr.src = URL.createObjectURL(b); })
+          .catch(() => qr.remove());
+        card.append(el("p", { class: "help" }, "Or point your phone's camera at this:"), qr);
+      }
+    }
+  }
+  form.append(card);
+}
+
+// After a new password, show the new QR code (the network restarts with it).
+function renderWifiAgain() {
+  const old = document.querySelector("#settings-form .wifi");
+  if (!old) return;
+  getJSON("/wifi").then((w) => { old.remove(); renderWifi(w, true); }).catch(() => {});
 }
 
 // ------------------------------------------------------------ Van data sharing

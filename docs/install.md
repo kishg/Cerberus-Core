@@ -19,6 +19,13 @@ This van's own setup (a Mac under launchd) is in [launchd/README.md](../launchd/
   models usually are), or vent the cabinet.
 - **Network:** the van's router (Starlink, or a travel router such as a
   GL.iNet), the same network the Cerbo is on. Wired if it's near the router.
+- **Wi-Fi that can run a network (access-point mode)**, for the box's own
+  network (below). Check with `iw list`: "Supported interface modes" must list
+  `AP`. Intel cards do, on 2.4 GHz only, which is enough in a van. The
+  reference box's Intel AX201 passed (Core #53): WPA2/WPA3, a phone joined and
+  opened the UI with no router.
+- **Two Ethernet ports** are recommended: one for the van's router, one for the
+  Cerbo straight to the box.
 
 Hardware Cerberus has run on, and what to avoid: [tested_hardware.md](tested_hardware.md).
 
@@ -87,6 +94,43 @@ From a phone or laptop on the van's network, open `http://<mini PC>:8088`
 Everything else is under **Settings**. Some values are learned once the van
 has run for a while (panel voltage, engine charging current, a hot joint on
 the charging path); Settings shows "learning" until then.
+
+## The box's own Wi-Fi network
+
+So a phone in the van can open Cerberus with no router and no internet (in
+storage, out of coverage, or with Starlink off along with the inverter), the
+box runs its own network, **Cerberus-XXXX**. It's on by default.
+
+- **The label.** When the van's router is down, this network is the only way
+  in, so its name and password go on a label on the box. Print it once, when
+  the box is set up:
+
+  ```
+  sudo -u cerberus /opt/cerberus/.venv/bin/python -m cerberus.wifiap label \
+    --config /etc/cerberus/config.yaml --out /tmp/cerberus-wifi-label.svg
+  ```
+
+  It's 100 x 62 mm, with the network name, the password, a QR code that joins
+  the network and one that opens Cerberus. Delete the file once it's printed:
+  it holds the password. The name and password are made the first time
+  (label or network, whichever comes first) and kept, so the label stays right.
+- **Join it:** scan the label's codes, or use the name and password from the
+  label (also in Settings > Box Wi-Fi network, after the PIN). Then open
+  **http://10.42.0.1:8088**.
+- **Isolated:** phones on it reach Cerberus's screens and nothing else. Nothing
+  is passed to the van's network, the Cerbo or the internet.
+- **Phones keep their mobile data:** the network offers no internet, so
+  everything else on the phone (alerts, Cerberus Cloud) carries on over
+  cellular. Android may ask once whether to stay connected: say yes.
+- **Settings:** on/off and the channel (1, 6 or 11) in Settings > Box Wi-Fi;
+  "New password" makes a fresh one (joined phones must join again), and warns
+  that the label then stops working; "Use the label's password again" undoes
+  that. The network restarts with each change.
+- **Under the hood:** the `cerberus-wifi` service (root) runs hostapd and
+  dnsmasq with its own settings, and its own nftables table for the isolation.
+  The distribution's `hostapd.service` is masked. Its state is in
+  `/run/cerberus-wifi/status.json` (never the password); its log is
+  `journalctl -u cerberus-wifi`.
 
 ## 6. Remote access, and support access
 
@@ -180,9 +224,9 @@ box's services.
 ## Updating, logs, removing
 
 - **Update:** `git pull` in the checkout, then `sudo bin/install-linux.sh`.
-- **Logs:** `journalctl -u cerberus -u cerberus-ui -u cerberus-ble -f`.
+- **Logs:** `journalctl -u cerberus -u cerberus-ui -u cerberus-ble -u cerberus-wifi -f`.
   "waiting for first-run setup" before setup is normal.
-- **Remove:** `sudo systemctl disable --now cerberus cerberus-ui cerberus-ble`,
+- **Remove:** `sudo systemctl disable --now cerberus cerberus-ui cerberus-ble cerberus-wifi cerberus-wifi.path`,
   then delete `/opt/cerberus`, and `/etc/cerberus` and `/var/lib/cerberus`
   if the settings and history should go too.
 

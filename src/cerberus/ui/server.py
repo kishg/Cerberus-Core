@@ -20,6 +20,9 @@ cloud relay later):
                                   what's waiting per table, and the last pass (never the token)
   GET  /api/v1/health-report      opt-in box health reports: on/off, where to (host only),
                                   and the last attempt with its exact payload (never the token)
+  GET  /api/v1/wifi               the box's own Wi-Fi network (cerberus.wifiap): on/off, state, name,
+                                  address, phones joined; the password only with a session
+  GET  /api/v1/wifi/qr.svg        the QR code a phone's camera reads to join it; needs a session
   GET  /api/v1/settings           editable settings, values and where they came from,
                                   and what setup detection proposes for each
   GET  /api/v1/setup/detect       what the Cerbo reports, and the proposals (cerberus.detect,
@@ -42,6 +45,9 @@ cloud relay later):
   POST /api/v1/cloud/unlink       the local client only: forget the token, health reports and sync off
   POST /api/v1/storage            {"on": true, "until"?: "YYYY-MM-DD", "online"?: bool} or {"on": false};
                                   needs a session, or the box's local client
+  POST /api/v1/wifi/password      {}: a new password for the box's Wi-Fi network (the network restarts
+                                  with it; joined phones must join again; the box's label stops
+                                  working), or {"label": true}: back to the label's; needs a session
   POST /api/v1/inverter/on        {}: turn the inverter back on from charger-only
                                   (cerberus.inverter_idle); needs a session
   POST /api/v1/notes              {key, text, title, num?, kind?}: a note on a finding
@@ -96,7 +102,8 @@ from urllib.parse import parse_qs, quote, urlsplit
 
 from .. import config as cfg_mod
 from .. import blescan, detect, firstrun, health, learn, location, notes, phonefix, status
-from .. import healthreport, inverter_idle, localclient, service_log, storage, syncer, victron_imports
+from .. import healthreport, inverter_idle, localclient, service_log, storage, syncer, victron_imports, wifiap
+from ..secretstore import SecretStore
 from .. import settings as settings_mod
 from . import access, api, auth
 
@@ -182,6 +189,7 @@ class App:
         self.service_due_mi = service_due_mi
         self.temp_unit = temp_unit
         self.sessions = auth.Sessions(config_path) if config_path else None
+        self.wifi_status_dir = wifiap.STATUS_DIR      # written by the cerberus-wifi service
         self.static = load_static()
 
     @classmethod
@@ -360,6 +368,16 @@ def make_handler(app: App):
                     return self._json(200, self._health_report_view(conn))
                 if ep == "sync":
                     return self._json(200, self._sync_view(conn))
+                if ep == "wifi":
+                    return self._json(200, self._wifi_view())
+                if ep == "wifi/qr.svg":
+                    if not (app.config_path and app.sessions.valid(self._token())):
+                        return self._json(401, {"error": "enter the PIN to see the Wi-Fi QR code"})
+                    view = self._wifi_view()
+                    if not (view.get("ssid") and view.get("password")):
+                        return self._json(404, {"error": "the box's Wi-Fi network isn't running"})
+                    svg = wifiap.qr_svg(wifiap.join_uri(view["ssid"], view["password"]))
+                    return self._send(200, svg.encode(), "image/svg+xml")
                 if ep == "storage":
                     if not app.config_path:
                         return self._json(404, {"error": "storage mode unavailable"})
@@ -409,6 +427,28 @@ def make_handler(app: App):
                 return cfg_mod.load(app.config_path).support
             except Exception:              # not set up, or a config that doesn't load
                 return None
+
+        def _wifi_view(self):
+            """The box's own network: what the setting says, what the service reports, and how to join.
+            The password only for someone with the PIN."""
+            enabled = True
+            if app.config_path:
+                try:
+                    enabled = wifiap.settings_from(cfg_mod.read_raw(app.config_path)).enabled
+                except (wifiap.WifiError, cfg_mod.ConfigError, OSError):
+                    pass
+            st = wifiap.read_status(app.wifi_status_dir)
+            out = {"enabled": enabled, "state": st.get("state", "unknown"), "error": st.get("error"),
+                   "ssid": st.get("ssid"), "address": st.get("address"), "security": st.get("security"),
+                   "channel": st.get("channel"), "clients": st.get("clients"), "since": st.get("since")}
+            if st.get("address"):
+                out["url"] = f"http://{st['address']}:{wifiap.UI_PORT}"
+            if app.config_path:
+                store = SecretStore.for_config(app.config_path)
+                out["on_label"] = wifiap.on_label(store)      # whether the box's label still works
+                if app.sessions.valid(self._token()):
+                    out["password"] = store.get(wifiap.SECRET)
+            return out
 
         def _sync_view(self, conn):
             """Van data sharing as the owner sees it: on or off, where to, what's waiting."""
@@ -579,6 +619,24 @@ def make_handler(app: App):
                     log.info("storage mode %s from %s", "on" if st.on else "off", "the local client" if local else addr)
                     return self._json(200, {"storage": storage.view(None, app.config_path, now,
                                                                     location.local(now, None).date())})
+                if ep == "wifi/password":
+                    if not app.sessions.valid(self._token()):
+                        return self._json(401, {"error": "enter the PIN to change the Wi-Fi password"})
+                    if not app.config_path:
+                        return self._json(404, {"error": "no settings folder"})
+                    store = SecretStore.for_config(app.config_path)
+                    if body.get("label") is True:
+                        try:
+                            wifiap.use_label_password(store)
+                        except wifiap.WifiError as err:
+                            return self._json(400, {"error": str(err)})
+                        log.info("box Wi-Fi back to the label's password, from %s", addr)
+                    else:
+                        if not store.get(wifiap.LABEL_SECRET) and store.get(wifiap.SECRET):
+                            store.set(wifiap.LABEL_SECRET, store.get(wifiap.SECRET))   # keep what the label has
+                        store.set(wifiap.SECRET, wifiap.new_password())
+                        log.info("box Wi-Fi password changed from %s", addr)
+                    return self._json(200, {"ok": True, "on_label": wifiap.on_label(store)})
                 if ep == "inverter/on":
                     if not app.sessions.valid(self._token()):
                         return self._json(401, {"error": "enter the PIN to turn the inverter on"})

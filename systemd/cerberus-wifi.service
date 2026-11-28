@@ -1,0 +1,21 @@
+[Unit]
+Description=Cerberus box Wi-Fi network (phones in the van reach the UI with no router; Core #53)
+After=network.target
+# Only where there's a Wi-Fi card; the service itself says when it can't run a network.
+ConditionPathExistsGlob=/sys/class/net/*/wireless
+
+[Service]
+Type=simple
+# Root: it runs hostapd and dnsmasq, sets the address and the isolation rules (nftables), and undoes all
+# of it when it stops. Everything it reads is the settings (wifi_ap in config.yaml / setup.yaml) and the
+# password (secrets/wifi_password); everything it writes is /run/cerberus-wifi (status for the UI, no
+# password) and, the first time, that password.
+WorkingDirectory=/opt/cerberus
+ExecStart=/opt/cerberus/.venv/bin/python -m cerberus.wifiap run --config /etc/cerberus/config.yaml
+Restart=on-failure
+RestartSec=10
+KillMode=mixed
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target

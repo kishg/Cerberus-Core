@@ -17,6 +17,7 @@ from . import heater as heater_mod
 from . import inverter_idle as inverter_idle_mod
 from . import location as location_mod
 from . import model as model_mod
+from . import wifiap as wifiap_mod
 from . import obd as obd_mod
 from . import profile as profile_mod
 from . import solar_path as solar_path_mod
@@ -334,6 +335,8 @@ class Config:
     inverter_idle: inverter_idle_mod.Settings = inverter_idle_mod.DEFAULT_SETTINGS
     health_report: HealthReportConfig = HealthReportConfig()
     support: SupportConfig = SupportConfig()
+    # The box's own Wi-Fi network (cerberus.wifiap, Core #53): on by default; run by its own root service.
+    wifi_ap: wifiap_mod.Settings = wifiap_mod.Settings()
 
 
 def _parse_support(raw: dict) -> SupportConfig:
@@ -614,6 +617,13 @@ def _parse_fast_capture(raw: dict, heater: heater_mod.Settings) -> fastcapture_m
     if s.pre_seconds < 0 or s.post_seconds < 0 or s.min_interval_seconds < 0 or s.retention_days <= 0:
         raise ConfigError("fast_capture: seconds can't be negative, retention_days must be > 0")
     return s
+
+
+def _parse_wifi_ap(raw: dict) -> wifiap_mod.Settings:
+    try:
+        return wifiap_mod.settings_from(raw)
+    except wifiap_mod.WifiError as err:
+        raise ConfigError(str(err)) from None
 
 
 def _parse_inverter_idle(raw: dict) -> inverter_idle_mod.Settings:
@@ -1083,6 +1093,7 @@ user_agent=str(w_raw.get("user_agent", DEFAULT_WEATHER_UA)).strip(),
         temperature_unit=_parse_temperature_unit(raw),
         victron=_parse_victron(raw),
         inverter_idle=_parse_inverter_idle(raw),
+        wifi_ap=_parse_wifi_ap(raw),
         health_report=_parse_health_report(raw, store),
         support=_parse_support(raw),
     )

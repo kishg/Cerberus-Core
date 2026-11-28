@@ -341,3 +341,17 @@ nav a[aria-current="page"] { color: var(--text); border-bottom-color: var(--ambe
 input, select, textarea, .note-text { border-radius: 4px !important; }
 [hidden] { display: none !important; }
 header.band { display: block; padding: 0; }
+.wifi .wifi-pw {
+  font: 600 18px/1.3 ui-monospace, "JetBrains Mono", monospace;
+  letter-spacing: .06em;
+  user-select: all;
+}
+.wifi .wifi-qr {
+  display: block;
+  width: 222px;
+  height: 222px;
+  margin: 6px 0 4px;
+  border-radius: 6px;
+  background: #fff;
+}
+.wifi .warn { border-left: 3px solid var(--warning); padding-left: 10px; }
