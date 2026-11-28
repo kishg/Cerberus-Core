@@ -283,6 +283,27 @@ def test_server_rejects_everything_else(server, path, code):
     assert _get(server + path)[0] == code
 
 
+@pytest.mark.parametrize("method, path", [
+    ("GET", "/"),                      # the page
+    ("GET", "/app.js"),
+    ("GET", "/api/now"),               # JSON
+    ("GET", "/api/nope"),              # an error from the app
+    ("PATCH", "/"),                    # an error from BaseHTTPRequestHandler.send_error (501)
+])
+def test_every_response_refuses_framing(server, method, path):
+    # S18: no other site may put the box UI in a frame (clickjacking).
+    import http.client
+    host, port = server.removeprefix("http://").split(":")
+    c = http.client.HTTPConnection(host, int(port), timeout=5)
+    c.request(method, path)
+    r = c.getresponse()
+    r.read()
+    c.close()
+    assert r.getheader("X-Frame-Options") == "DENY"
+    assert r.getheader("Content-Security-Policy") == "frame-ancestors 'none'"
+    assert r.headers.get_all("X-Content-Type-Options") == ["nosniff"]    # sent once, not twice
+
+
 def test_ui_connection_cannot_write(db):
     conn = connect_ro(db._path)
     with pytest.raises(sqlite3.OperationalError):
