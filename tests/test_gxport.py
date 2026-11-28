@@ -483,3 +483,27 @@ def test_health_endpoint_shows_the_cable_and_which_way(tmp_path):
         httpd.server_close()
     assert h["gx_port"] == {"state": "on", "interface": "enp1s0", "link": "up", "gx_seen": True, "devices": 1,
                             "error": None, "via": "gx_port"}
+
+
+def test_the_notify_socket_is_not_passed_on_to_the_commands_it_runs(monkeypatch):
+    # Children that inherit NOTIFY_SOCKET send notifications systemd refuses (NotifyAccess=main),
+    # one warning per poll. The service keeps the socket for itself and still reports READY.
+    import os
+    import socket
+    import shutil
+    import tempfile
+    short = tempfile.mkdtemp(dir="/tmp")             # AF_UNIX paths are short; macOS's tmp_path is too long
+    path = os.path.join(short, "n.sock")
+    srv = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+    srv.bind(path)
+    srv.settimeout(2)
+    monkeypatch.setattr(gxport, "_notify_socket", None)
+    monkeypatch.setenv("NOTIFY_SOCKET", path)
+    gxport.take_notify_socket()
+    assert "NOTIFY_SOCKET" not in os.environ
+    gxport.notify_ready()
+    try:
+        assert srv.recv(64) == b"READY=1"
+    finally:
+        srv.close()
+        shutil.rmtree(short, ignore_errors=True)
