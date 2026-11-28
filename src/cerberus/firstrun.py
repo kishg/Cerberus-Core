@@ -2,11 +2,14 @@
 
 A new box has no config.yaml. The UI's setup wizard drives this module:
 
-1. **discover()** lists GX devices on the box's own networks: the mDNS name
-   ``venus.local``, plus every host on the box's /24s with the MQTT port
-   open. A host counts as a Victron GX when its web page says so (the GX
-   serves a Victron-branded login page; Home Assistant's broker on the same
-   LAN does not).
+1. **discover()** lists GX devices on the box's own networks: first the GX
+   cabled to the box's second Ethernet port (cerberus.gxport: its DHCP
+   lease, its predictable address, or whatever answered there, link-local
+   included), then the mDNS name ``venus.local``, plus every host on the
+   box's /24s with the MQTT port open. A host counts as a Victron GX when
+   its web page says so (the GX serves a Victron-branded login page; Home
+   Assistant's broker on the same LAN does not). Each candidate says which
+   way it was found (``via``: "gx_port" or "lan").
 2. **probe()** connects with the owner's password, reads the portal ID from
    ``N/+/system/0/Serial`` (the GX announces it unasked) and collects the
    same inventory the collector records (cerberus.detect), so the wizard can
@@ -36,6 +39,7 @@ from pathlib import Path
 from . import config as cfg_mod
 from . import detect as detect_mod
 from . import envfile
+from . import gxport as gxport_mod
 from . import settings as settings_mod
 from .location import VanLocation
 
@@ -123,36 +127,49 @@ def web_open(host: str) -> bool:
 
 
 def discover(networks=None, port_check=port_open, gx_check=looks_like_gx,
-             resolver=resolve, web_check=web_open) -> list[dict]:
-    """GX candidates, most likely first: {host, address, gx, mqtt}.
+             resolver=resolve, web_check=web_open, gx_port: dict | None = None) -> list[dict]:
+    """GX candidates, most likely first: {host, address, gx, mqtt, via}.
 
     A GX with MQTT switched off has no open MQTT port, so it is also looked for by its web
     page: a host with port 80 open that serves the Victron page is a GX, ``mqtt`` False. The
-    wizard then says MQTT is off instead of "no Cerbo found"."""
+    wizard then says MQTT is off instead of "no Cerbo found".
+
+    ``gx_port`` is the second port's status (cerberus.gxport; read from its service when None).
+    A GX there comes first: it doesn't depend on the van's router."""
     found: dict[str, dict] = {}
+    port_status = gxport_mod.read_status() if gx_port is None else gx_port
+    for a in gxport_mod.gx_addresses(port_status):
+        if port_check(a):
+            found[a] = {"host": a, "address": a, "mqtt": True, "via": "gx_port"}
+        elif web_check(a):
+            found[a] = {"host": a, "address": a, "mqtt": False, "via": "gx_port"}
     mdns = resolver(MDNS_NAME)
-    if mdns:
+    if mdns and mdns not in found:
         if port_check(mdns):
-            found[mdns] = {"host": MDNS_NAME, "address": mdns, "mqtt": True}
+            found[mdns] = {"host": MDNS_NAME, "address": mdns, "mqtt": True, "via": "lan"}
         elif web_check(mdns):
-            found[mdns] = {"host": MDNS_NAME, "address": mdns, "mqtt": False}
+            found[mdns] = {"host": MDNS_NAME, "address": mdns, "mqtt": False, "via": "lan"}
     nets = local_networks() if networks is None else networks
     hosts = [str(h) for n in nets for h in n.hosts()]
+    if port_status.get("state") == "on" and port_status.get("network"):
+        own = ipaddress.ip_network(port_status["network"])        # already looked at, address by address
+        hosts = [h for h in hosts if ipaddress.ip_address(h) not in own]
     with concurrent.futures.ThreadPoolExecutor(max_workers=64) as pool:
         mqtt_open = dict(zip(hosts, pool.map(port_check, hosts)))
         web_only = [h for h in hosts if not mqtt_open[h] and h not in found]
         web = dict(zip(web_only, pool.map(web_check, web_only)))
     for h in hosts:
         if mqtt_open[h] and h not in found:
-            found[h] = {"host": h, "address": h, "mqtt": True}
+            found[h] = {"host": h, "address": h, "mqtt": True, "via": "lan"}
     out = list(found.values())
     for c in out:
         c["gx"] = gx_check(c["address"])
     # Web-only hosts count only if they really are a GX (routers and printers serve pages too).
     for h, ok in web.items():
         if ok and h not in found and gx_check(h):
-            out.append({"host": h, "address": h, "mqtt": False, "gx": True})
-    out.sort(key=lambda c: (not c["gx"], not c["mqtt"], c["host"] != MDNS_NAME, c["address"]))
+            out.append({"host": h, "address": h, "mqtt": False, "gx": True, "via": "lan"})
+    out.sort(key=lambda c: (not c["gx"], not c["mqtt"], c["via"] != "gx_port", c["host"] != MDNS_NAME,
+                            c["address"]))
     return out
 
 

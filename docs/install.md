@@ -25,7 +25,9 @@ This van's own setup (a Mac under launchd) is in [launchd/README.md](../launchd/
   reference box's Intel AX201 passed (Core #53): WPA2/WPA3, a phone joined and
   opened the UI with no router.
 - **Two Ethernet ports** are recommended: one for the van's router, one for the
-  Cerbo straight to the box.
+  Cerbo straight to the box ([the Cerbo on the box's second port](#the-cerbo-on-the-boxs-second-ethernet-port),
+  below). The reference box has two Intel I226-V ports. A box with one port
+  works too: the Cerbo is then reached through the van's router only.
 
 Hardware Cerberus has run on, and what to avoid: [tested_hardware.md](tested_hardware.md).
 
@@ -38,6 +40,12 @@ On the GX (Remote Console or the touch screen):
    setup wizard asks for.
 2. **Turn on MQTT on LAN** (Settings > Services, or Settings > Integrations on
    newer firmware). Cerberus reads everything through it.
+3. **Keep the Cerbo on the van's router over Wi-Fi** (Settings > Wi-Fi), even
+   when it is cabled to the box. That is its internet (VRM, firmware updates):
+   the box never gives the Cerbo internet.
+4. **Recommended: cable the Cerbo's Ethernet port to the box's second Ethernet
+   port**, and leave the Cerbo's Ethernet on DHCP (Settings > Ethernet, the
+   default).
 
 ## 3. Install
 
@@ -57,6 +65,8 @@ the package in `/opt/cerberus/.venv`, and three systemd services:
 | `cerberus` | The collector: reads the Cerbo, stores history, runs the detectors |
 | `cerberus-ui` | The web app, on port 8088 |
 | `cerberus-ble` | Optional BLE readings (Lithionics packs, ACR, cabin sensor, OBD) |
+| `cerberus-wifi` | The box's own Wi-Fi network (root; below) |
+| `cerberus-gx-port` | The Cerbo on the box's second Ethernet port (root; below) |
 
 Settings live in `/etc/cerberus` and the database in `/var/lib/cerberus`. No
 configuration is installed: until setup is done the collector and BLE
@@ -83,7 +93,12 @@ hash.)
 From a phone or laptop on the van's network, open `http://<mini PC>:8088`
 (the install script prints the address). Under **Set up Cerberus**:
 
-1. **Find the Cerbo.** It searches the network; or type the Cerbo's address.
+1. **Find the Cerbo.** It looks on the box's second Ethernet port first (a
+   Cerbo there shows "on the box's Ethernet cable", usually at `10.43.0.10`),
+   then searches the van's network; or type the Cerbo's address. A Cerbo
+   cabled to the box and on the router's Wi-Fi shows up twice: pick the cable.
+   Cerberus also keeps `venus.local`, which reaches it over Wi-Fi if the cable
+   is out.
 2. **Connect** with the Cerbo's Remote Console password. It is checked on the
    Cerbo and stored only in `/etc/cerberus/.env`, readable by the service
    user alone, never in a configuration file.
@@ -134,6 +149,77 @@ box runs its own network, **Cerberus-XXXX**. It's on by default.
   The distribution's `hostapd.service` is masked. Its state is in
   `/run/cerberus-wifi/status.json` (never the password); its log is
   `journalctl -u cerberus-wifi`.
+
+## The Cerbo on the box's second Ethernet port
+
+The recommended install, on a box with two Ethernet ports: the Cerbo cabled
+straight to the box. Collection then doesn't depend on the van's router (off
+with the inverter, or not there at all); the router only provides internet.
+It's on by default (`gx_port.enabled`).
+
+- **Cabling.** One port to the van's router (the box's own network), the other
+  straight to the Cerbo's Ethernet port with an ordinary Ethernet cable: no
+  switch, nothing else on that cable. The installer uses the port that nothing
+  else configures (on the reference box, `enp1s0`, while `enp2s0` is the LAN),
+  so plug the router into the port the box was set up with.
+- **The Cerbo keeps its own internet.** It must stay joined to the van's router
+  over Wi-Fi for VRM and firmware updates. The box gives the cable no router
+  and no DNS, and never routes, forwards or NATs anything for the Cerbo (owner
+  decision, Core #53): Cerbo internet never depends on Cerberus.
+- **What the installer sets up:** the `cerberus-gx-port` service (root). It
+  gives the port the address **10.43.0.1/24**, a link-local address too (for a
+  Cerbo that fell back to 169.254.x.x), and a DHCP server with one address,
+  **10.43.0.10**, for the Cerbo (no router, no DNS, 10-minute leases). It's a
+  systemd-networkd file, `/run/systemd/network/20-cerberus-gx-port.network`,
+  rewritten by the service at each start (it's gone after a reboot until then).
+- **Isolated.** From that port the box accepts only DHCP, ping and the Cerbo's
+  answers to the box's own connections (MQTT): nothing else on the box, and
+  nothing forwarded to the van's network or the internet. The rules are their
+  own nftables table, `cerberus_gx`, ahead of Docker's.
+- **The collector** tries `10.43.0.10` first whenever the port is set up, then
+  the Cerbo's other addresses (its Wi-Fi address on the van's network, then
+  `venus.local`). On a box set up before this, it picks the cable up on the
+  next restart; nothing to change in config.yaml.
+- **Which way it's reading:** Health has a **Cerbo cable (box Ethernet)** row:
+  "Collecting" over the cable, "No cable", or "Cable in, Cerbo not used" with
+  the way it is reading the Cerbo instead (the van's network, or Victron's
+  cloud).
+- **Settings** (in `setup.yaml`, under `gx_port`):
+
+  ```yaml
+  gx_port:
+    enabled: true            # Settings > Box Ethernet
+    interface: ""            # empty: the one free Ethernet port; name it (enp1s0) if there are several
+    address: 10.43.0.1/24    # the box on the Cerbo's cable; the Cerbo gets .10. A private /24, not the box Wi-Fi's
+    dhcp: true               # false: no DHCP, link-local only (see "If VRM stops" below)
+  ```
+
+  Turning it off takes the port's address and rules away. Stopping the service
+  (`systemctl stop cerberus-gx-port`) leaves the port as it is.
+- **A box where it doesn't apply** changes nothing and says why: one Ethernet
+  port (it's the LAN), several free ports (set `gx_port.interface`), a network
+  run by NetworkManager or anything but systemd-networkd, or a port configured
+  by something else (Cerberus never takes it over).
+- **Check it:**
+
+  ```sh
+  /opt/cerberus/.venv/bin/python -m cerberus.gxport status   # state, port, link, the Cerbo's address
+  networkctl status enp1s0                                    # "Offered DHCP leases: 10.43.0.10"
+  ping -c 3 10.43.0.10
+  sudo nft list table inet cerberus_gx
+  journalctl -u cerberus-gx-port
+  ```
+
+  and on the Cerbo, Settings > Ethernet shows `10.43.0.10` with no gateway,
+  while Settings > Wi-Fi stays connected and VRM keeps updating.
+- **If VRM stops** once the cable is in (the Cerbo sent its internet traffic to
+  the cable, which has no gateway): set `gx_port.dhcp: false`. The Cerbo then
+  falls back to a link-local address on the cable, which Venus OS doesn't use
+  for its internet, and the box still reaches it there: put that 169.254
+  address (`python -m cerberus.gxport status` lists it under `neighbors`)
+  first in `mqtt.hosts`. Or give the
+  Cerbo's Ethernet a manual address (`10.43.0.10`, netmask `255.255.255.0`,
+  gateway and DNS left empty) on the Cerbo. The box still routes nothing.
 
 ## 6. Remote access, and support access
 
@@ -228,7 +314,7 @@ box's services.
 ## Updating, logs, removing
 
 - **Update:** `git pull` in the checkout, then `sudo bin/install-linux.sh`.
-- **Logs:** `journalctl -u cerberus -u cerberus-ui -u cerberus-ble -u cerberus-wifi -f`.
+- **Logs:** `journalctl -u cerberus -u cerberus-ui -u cerberus-ble -u cerberus-wifi -u cerberus-gx-port -f`.
   "waiting for first-run setup" before setup is normal.
 - **Support file:** Settings > Support > Download support file (signed in) gives one zip for
   support: status, health, findings, events, box health, settings and the last lines of each log,
@@ -238,7 +324,8 @@ box's services.
   file reads these, never the system journal. A box installed before them needs
   `sudo bin/install-linux.sh` again to make the folder and pick up the new units; until then
   the support file says each log couldn't be read.
-- **Remove:** `sudo systemctl disable --now cerberus cerberus-ui cerberus-ble cerberus-wifi cerberus-wifi.path`,
+- **Remove:** set `gx_port.enabled: false` first (it takes the port's address and rules away), then
+  `sudo systemctl disable --now cerberus cerberus-ui cerberus-ble cerberus-wifi cerberus-wifi.path cerberus-gx-port cerberus-gx-port.path`,
   then delete `/opt/cerberus`, and `/etc/cerberus` and `/var/lib/cerberus`
   if the settings and history should go too.
 
@@ -249,6 +336,9 @@ van back, check:
 
 - [ ] Now shows live battery, solar and AC readings.
 - [ ] Health shows the Cerbo and weather as fresh.
+- [ ] With the Cerbo cabled to the box: Health's **Cerbo cable** row says
+      "Collecting", and VRM still shows the Cerbo online (its own Wi-Fi).
+- [ ] With the van's router off: Now keeps updating (over the cable).
 - [ ] The time on Now matches the van's local time.
 - [ ] Settings shows every detected value matching (or knowingly changed).
 - [ ] The box survives a power cycle: services come back on their own.

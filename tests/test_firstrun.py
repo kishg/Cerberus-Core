@@ -87,9 +87,9 @@ def test_discover_puts_the_gx_first():
         port_check=lambda h: h in open_,
         gx_check=lambda h: h == "10.0.0.5",
         resolver=lambda name: "10.0.0.5",
-        web_check=lambda h: False)
-    assert found == [{"host": "venus.local", "address": "10.0.0.5", "mqtt": True, "gx": True},
-                     {"host": "10.0.0.2", "address": "10.0.0.2", "mqtt": True, "gx": False}]
+        web_check=lambda h: False, gx_port={})
+    assert found == [{"host": "venus.local", "address": "10.0.0.5", "mqtt": True, "via": "lan", "gx": True},
+                     {"host": "10.0.0.2", "address": "10.0.0.2", "mqtt": True, "via": "lan", "gx": False}]
 
 
 # --- MQTT off, and the other first-install failures (Core #39) ----------------------------
@@ -101,15 +101,15 @@ def test_discover_finds_a_gx_with_mqtt_off_by_its_web_page():
         port_check=lambda h: h == "10.0.0.2",
         web_check=lambda h: h in {"10.0.0.3", "10.0.0.5"},
         gx_check=lambda h: h == "10.0.0.5",
-        resolver=lambda name: None)
-    assert found == [{"host": "10.0.0.5", "address": "10.0.0.5", "mqtt": False, "gx": True},
-                     {"host": "10.0.0.2", "address": "10.0.0.2", "mqtt": True, "gx": False}]
+        resolver=lambda name: None, gx_port={})
+    assert found == [{"host": "10.0.0.5", "address": "10.0.0.5", "mqtt": False, "gx": True, "via": "lan"},
+                     {"host": "10.0.0.2", "address": "10.0.0.2", "mqtt": True, "via": "lan", "gx": False}]
 
 
 def test_discover_mdns_gx_with_mqtt_off():
     found = firstrun.discover(networks=[], port_check=lambda h: False, web_check=lambda h: True,
-                              gx_check=lambda h: True, resolver=lambda name: "10.0.0.9")
-    assert found == [{"host": "venus.local", "address": "10.0.0.9", "mqtt": False, "gx": True}]
+                              gx_check=lambda h: True, resolver=lambda name: "10.0.0.9", gx_port={})
+    assert found == [{"host": "venus.local", "address": "10.0.0.9", "mqtt": False, "via": "lan", "gx": True}]
 
 
 def test_probe_says_mqtt_is_off(monkeypatch):

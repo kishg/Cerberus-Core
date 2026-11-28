@@ -28,7 +28,8 @@ def watch(enabled=True, token=True):
 def test_link_up_says_nothing_more():
     w = watch()
     w.lan_heartbeat(now=1000)
-    assert w.view(1030) == {"lan": "ok", "lan_last": 1000, "cause": None, "fallback": None, "fallback_last": None}
+    assert w.view(1030) == {"lan": "ok", "lan_last": 1000, "cause": None, "fallback": None, "fallback_last": None,
+                           "via": None}
 
 
 def test_retained_serial_alone_is_not_the_cloud_working():

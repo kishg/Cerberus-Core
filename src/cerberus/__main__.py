@@ -18,7 +18,7 @@ from . import config as cfg_mod
 from . import detect as detect_mod
 from . import detectors as detectors_mod
 from . import envfile
-from . import gxlink
+from . import gxlink, gxport
 from . import phonefix
 from . import storage as storage_mod
 from . import drives as drives_mod
@@ -657,12 +657,12 @@ class Cerberus:
         now = time.time() if now is None else now
         self.gx.cloud_connected = self.cloud is not None and self.cloud.is_connected
         self.gx.maybe_probe(now, self.mqtt.target_ip, self.cfg.mqtt.port, connected=self.mqtt.is_connected)
-        view = self.gx.view(now, self._local_down_since)
-        said = (view["lan"], view["cause"], view["fallback"])
+        view = self.gx.view(now, self._local_down_since, via=gxport.via(self.mqtt.target_ip, getattr(self.cfg, "gx_port", None)))
+        said = (view["lan"], view["cause"], view["fallback"], view["via"])
         # The log gets the link going down or up and the fallback's stages; a cause that flips while
         # the link stays down (silent / no_answer, re-probed every minute) is HA's, not the log's.
         logged = (view["lan"], view["fallback"])
-        if self._gx_said is not None and logged != self._gx_said[::2]:
+        if self._gx_said is not None and logged != self._gx_said[0:3:2]:
             log.warning("GX link: %s%s%s", view["lan"], f", {view['cause']}" if view["cause"] else "",
                         f", cloud fallback {view['fallback']}" if view["fallback"] else "")
         if said != self._gx_said:
@@ -1377,6 +1377,8 @@ def main() -> int:
             reexec(args.config)
         return 0
 
+    # The GX's own cable (cerberus.gxport): its address first while the port is set up.
+    cfg = gxport.with_gx_port(cfg, gxport.read_status())
     app = Cerberus(cfg)
     app.watch_config(args.config)
     app.ensure_device_id()

@@ -113,7 +113,7 @@ from urllib.parse import parse_qs, quote, urlsplit
 
 from .. import config as cfg_mod
 from .. import blescan, detect, firstrun, health, learn, location, notes, phonefix, status
-from .. import healthreport, inverter_idle, localclient, service_log, storage, syncer, victron_imports, wifiap
+from .. import gxport, healthreport, inverter_idle, localclient, service_log, storage, syncer, victron_imports, wifiap
 from .. import supportfile
 from ..secretstore import SecretStore
 from .. import settings as settings_mod
@@ -202,6 +202,7 @@ class App:
         self.temp_unit = temp_unit
         self.sessions = auth.Sessions(config_path) if config_path else None
         self.wifi_status_dir = wifiap.STATUS_DIR      # written by the cerberus-wifi service
+        self.gx_port_status_dir = gxport.STATUS_DIR   # written by the cerberus-gx-port service
         self.static = load_static()
 
     @classmethod
@@ -407,7 +408,8 @@ def make_handler(app: App):
                     st = wifiap.read_status(app.wifi_status_dir)
                     wifi = {**wifiap.health(st, now), "error": st.get("error") if isinstance(st.get("error"), str) else None}
                     return self._json(200, {**health.health_view(conn, now, ctx.tz),
-                                            "remote": access.remote(self._support_cfg()), "wifi": wifi})
+                                            "remote": access.remote(self._support_cfg()), "wifi": wifi,
+                                            "gx_port": self._gx_port_view(conn, now)})
                 if ep == "health-report":
                     return self._json(200, self._health_report_view(conn))
                 if ep == "sync":
@@ -504,6 +506,20 @@ def make_handler(app: App):
                 return cfg_mod.load(app.config_path).support
             except Exception:              # not set up, or a config that doesn't load
                 return None
+
+        def _gx_port_view(self, conn, now):
+            """The GX's own cable (cerberus.gxport) for the Health page, and which way the collector
+            reaches the GX right now (its live view's ``via``). Local only, never in the health report."""
+            out = gxport.health(gxport.read_status(app.gx_port_status_dir), now)
+            try:
+                row = conn.execute("SELECT value FROM kv WHERE key = 'live.snapshot'").fetchone()
+                gx = (json.loads(row[0]) or {}).get("gx") if row else None
+            except (sqlite3.Error, ValueError, TypeError, AttributeError):
+                gx = None
+            gx = gx if isinstance(gx, dict) else {}
+            out["via"] = gx.get("via") if gx.get("lan") == "ok" else (
+                "cloud" if gx.get("fallback") == "delivering" else None)
+            return out
 
         def _wifi_view(self):
             """The box's own network: what the setting says, what the service reports, and how to join.

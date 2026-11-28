@@ -162,6 +162,12 @@ SETTINGS = (
     Setting("wifi_ap.channel", "Box Wi-Fi", "Box Wi-Fi channel",
             "2.4 GHz channel 1, 6 or 11. Change it only if another network nearby is on the same one.",
             "choice", choices=(1, 6, 11), getter=lambda c: c.wifi_ap.channel),
+    Setting("gx_port.enabled", "Box Ethernet", "Cerbo on the box's second Ethernet port",
+            "The recommended install: the Cerbo cabled straight to the box's free Ethernet port, so "
+            "collection doesn't need the van's router. The box gives the Cerbo an address there "
+            "(10.43.0.10 by default) and nothing else: the Cerbo keeps its own Wi-Fi to the router for "
+            "VRM and updates. A box with one Ethernet port ignores this.",
+            "bool", getter=lambda c: c.gx_port.enabled),
     Setting("ha_mqtt.enabled", "Home Assistant", "Publish to Home Assistant",
             "Optional: send readings, events and discovery to Home Assistant's MQTT "
             "broker, so they appear as HA entities. Cerberus's own screens don't need it.",

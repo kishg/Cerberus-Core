@@ -2,6 +2,8 @@
 Description=Cerberus battery-intelligence service
 After=network-online.target
 Wants=network-online.target
+# The GX's own cable (cerberus-gx-port): its status says whether to try the GX there first.
+After=cerberus-gx-port.service
 
 [Service]
 Type=simple

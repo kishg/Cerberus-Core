@@ -1,0 +1,6 @@
+[Unit]
+Description=Restart the GX Ethernet port's service with its new settings (cerberus-gx-port.path)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/systemctl try-restart cerberus-gx-port.service
