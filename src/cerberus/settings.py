@@ -155,6 +155,13 @@ SETTINGS = (
             "arriving) to the address in config.yaml. Never readings or position. "
             "Shown in full below.",
             "bool", getter=lambda c: c.health_report.enabled),
+    Setting("wifi_ap.enabled", "Box Wi-Fi", "Box Wi-Fi network",
+            "The box's own network, so a phone in the van can open Cerberus with no router and no "
+            "internet. Phones on it reach these screens only, and keep their mobile data for the rest.",
+            "bool", getter=lambda c: c.wifi_ap.enabled),
+    Setting("wifi_ap.channel", "Box Wi-Fi", "Box Wi-Fi channel",
+            "2.4 GHz channel 1, 6 or 11. Change it only if another network nearby is on the same one.",
+            "choice", choices=(1, 6, 11), getter=lambda c: c.wifi_ap.channel),
     Setting("ha_mqtt.enabled", "Home Assistant", "Publish to Home Assistant",
             "Optional: send readings, events and discovery to Home Assistant's MQTT "
             "broker, so they appear as HA entities. Cerberus's own screens don't need it.",

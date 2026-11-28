@@ -14,6 +14,9 @@ dependencies = [
   # zone() falls back to the host's time, UTC on a fresh server, and every
   # van-local day is off by hours.
   "tzdata>=2024.1",
+  # QR codes drawn on the box (no internet): joining the box's own Wi-Fi network (cerberus.wifiap).
+  # Pure Python, no dependencies, BSD-3-Clause.
+  "segno>=1.6",
 ]
 
 [project.optional-dependencies]

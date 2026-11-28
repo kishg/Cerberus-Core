@@ -268,3 +268,47 @@ def test_files_written_beside_config_are_never_committed():
              notes.NOTES_FILE, service_log.SERVICE_FILE]
     for n in names:
         assert subprocess.run(["git", "check-ignore", "-q", n], cwd=root).returncode == 0, n
+
+
+# --- the box's own Wi-Fi network (Core #53) ------------------------------------------------
+
+def test_wifi_view_shows_the_network_and_the_password_only_with_a_session(cfg, tmp_path):
+    from cerberus import wifiap
+    from cerberus.secretstore import SecretStore
+    from cerberus.ui.server import App, serve
+    db = Db(str(tmp_path / "w.db"))
+    app = App.from_config(str(cfg), db._path)
+    app.wifi_status_dir = tmp_path / "wifi"
+    wifiap.write_status({"state": "on", "ssid": "Cerberus-AB12", "address": "10.42.0.1", "security": "WPA2/WPA3",
+                         "channel": 6, "clients": 1, "since": 100}, app.wifi_status_dir)
+    SecretStore.for_config(cfg).set(wifiap.SECRET, "Pw23456789ab")
+    httpd = serve(app, "127.0.0.1", 0)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{httpd.server_address[1]}"
+    try:
+        code, w = _req(base + "/api/v1/wifi")
+        assert code == 200 and (w["enabled"], w["state"], w["ssid"], w["url"], w["clients"]) == \
+               (True, "on", "Cerberus-AB12", "http://10.42.0.1:8088", 1)
+        assert "password" not in w                                         # not without the PIN
+        assert _req(base + "/api/v1/wifi/password", {})[0] == 401
+        _, r = _req(base + "/api/v1/auth/pin", {"pin": "2468"})
+        assert _req(base + "/api/v1/wifi", token=r["token"])[1]["password"] == "Pw23456789ab"
+        qr = urllib.request.Request(base + "/api/v1/wifi/qr.svg", headers={"Authorization": f"Bearer {r['token']}"})
+        with urllib.request.urlopen(qr, timeout=5) as resp:
+            assert resp.headers["Content-Type"] == "image/svg+xml" and resp.read().startswith(b"<svg")
+        with pytest.raises(urllib.error.HTTPError) as e:                       # not without the PIN
+            urllib.request.urlopen(base + "/api/v1/wifi/qr.svg", timeout=5)
+        assert e.value.code == 401
+        assert _req(base + "/api/v1/wifi/password", {}, r["token"])[0] == 200
+        after = _req(base + "/api/v1/wifi", token=r["token"])[1]
+        assert after["password"] != "Pw23456789ab" and len(after["password"]) == 12
+        assert after["on_label"] is False                                     # the label's password is kept apart
+        assert _req(base + "/api/v1/wifi/password", {"label": True}, r["token"])[1]["on_label"] is True
+        assert _req(base + "/api/v1/wifi", token=r["token"])[1]["password"] == "Pw23456789ab"
+        # Turned off in settings: the view says so.
+        code, _ = _req(base + "/api/v1/settings", {"changes": {"wifi_ap.enabled": False}}, r["token"])
+        assert code == 200 and _req(base + "/api/v1/wifi")[1]["enabled"] is False
+        assert _req(base + "/api/v1/settings", {"changes": {"wifi_ap.channel": 3}}, r["token"])[0] == 400
+    finally:
+        httpd.shutdown()
+        httpd.server_close()

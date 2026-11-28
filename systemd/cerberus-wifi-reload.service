@@ -1,0 +1,6 @@
+[Unit]
+Description=Restart the box Wi-Fi network with its new settings (cerberus-wifi.path)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/systemctl try-restart cerberus-wifi.service

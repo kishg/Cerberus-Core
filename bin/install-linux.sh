@@ -47,7 +47,12 @@ if [[ $APT -eq 1 ]]; then
   say "OS packages"
   export DEBIAN_FRONTEND=noninteractive
   apt-get update -q
-  apt-get install -y -q python3 python3-venv bluez
+  # hostapd and dnsmasq-base for the box's own Wi-Fi network (cerberus-wifi, Core #53); nftables for its
+  # isolation. dnsmasq-base, not dnsmasq: no system DNS server competing with systemd-resolved.
+  apt-get install -y -q python3 python3-venv bluez hostapd dnsmasq-base nftables iw
+  # Cerberus runs hostapd itself, with its own settings: the distribution's service stays off.
+  systemctl disable --now hostapd.service 2>/dev/null || true
+  systemctl mask hostapd.service 2>/dev/null || true
 fi
 
 python3 -c 'import sys; sys.exit(sys.version_info < (3, 11))' || {
@@ -77,13 +82,21 @@ install -d -o cerberus -g cerberus -m 750 "$ETC" "$STATE"
 
 if [[ $SYSTEMD -eq 1 ]]; then
   say "systemd units"
-  for unit in cerberus.service cerberus-ui.service cerberus-ble.service; do
+  for unit in cerberus.service cerberus-ui.service cerberus-ble.service \
+              cerberus-wifi.service cerberus-wifi.path cerberus-wifi-reload.service; do
     install -m 644 "$SRC/systemd/$unit" "/etc/systemd/system/$unit"
   done
   systemctl daemon-reload
   systemctl enable --now cerberus.service cerberus-ui.service cerberus-ble.service
   # A re-install runs the new code.
   systemctl restart cerberus.service cerberus-ui.service cerberus-ble.service
+  # The box's own Wi-Fi network: on by default (wifi_ap.enabled), where there's a Wi-Fi card.
+  if compgen -G "/sys/class/net/*/wireless" >/dev/null; then
+    systemctl enable --now cerberus-wifi.path cerberus-wifi.service
+    systemctl restart cerberus-wifi.service
+  else
+    say "No Wi-Fi card: the box's own network is skipped"
+  fi
 fi
 
 "$PREFIX/.venv/bin/python" -c 'import cerberus.ui.server, cerberus.firstrun, cerberus.ble' \
@@ -98,4 +111,10 @@ Next:
   2. Open http://${ip:-<this box>}:8088 from a phone or laptop on the van's
      network and follow "Set up Cerberus" (finds the Cerbo, asks its password).
   3. Optional: remote access and HTTPS with Tailscale (docs/install.md).
+  4. Print the box's Wi-Fi label and stick it on the box: in the van with no
+     router, it's how a phone gets in (network name, password, a QR code to
+     join and one to open Cerberus):
+       sudo -u cerberus $PREFIX/.venv/bin/python -m cerberus.wifiap label \\
+         --config $ETC/config.yaml --out /tmp/cerberus-wifi-label.svg
+     Print it at 100 x 62 mm, then delete the file (it holds the password).
 EOF
