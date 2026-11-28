@@ -106,9 +106,12 @@ box runs its own network, **Cerberus-XXXX**. It's on by default.
   the box is set up:
 
   ```
-  sudo -u cerberus /opt/cerberus/.venv/bin/python -m cerberus.wifiap label \
-    --config /etc/cerberus/config.yaml --out /tmp/cerberus-wifi-label.svg
+  sudo /opt/cerberus/.venv/bin/python -m cerberus.wifiap label \
+    --config /etc/cerberus/config.yaml --out ~/cerberus-wifi-label.svg
   ```
+
+  KNM's boxes get theirs from the console instead (Cerberus boxes > Print
+  label), which asks the box for the details at print time.
 
   It's 100 x 62 mm, with the network name, the password, a QR code that joins
   the network and one that opens Cerberus. Delete the file once it's printed:

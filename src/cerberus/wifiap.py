@@ -449,6 +449,8 @@ def main(argv: list[str] | None = None) -> int:
         fd = os.open(out, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)     # it carries the password
         with os.fdopen(fd, "w") as f:
             f.write(label_svg(name, label_pw, url))
+        if os.geteuid() == 0 and os.environ.get("SUDO_UID"):          # run with sudo: the file is the caller's
+            os.chown(out, int(os.environ["SUDO_UID"]), int(os.environ.get("SUDO_GID") or os.environ["SUDO_UID"]))
         print(f"Label for {name} written to {out}. Print it at 100 x 62 mm and stick it on the box;"
               " then delete the file (it holds the password).")
         return 0

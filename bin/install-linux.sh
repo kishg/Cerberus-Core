@@ -104,6 +104,13 @@ fi
 
 ip=$(hostname -I 2>/dev/null | awk '{print $1}')
 say "Installed"
+if [[ -f "$ETC/config.yaml" ]]; then
+  # A re-install on a box that's already set up: nothing more to do.
+  echo "This box is already set up; it's running the new version."
+  echo "Its Wi-Fi label: printed from KNM's console (Cerberus boxes), or here with"
+  echo "  sudo $PREFIX/.venv/bin/python -m cerberus.wifiap label --config $ETC/config.yaml --out ~/cerberus-wifi-label.svg"
+  exit 0
+fi
 cat <<EOF
 Next:
   1. Set the settings PIN, on this box:
@@ -113,8 +120,9 @@ Next:
   3. Optional: remote access and HTTPS with Tailscale (docs/install.md).
   4. Print the box's Wi-Fi label and stick it on the box: in the van with no
      router, it's how a phone gets in (network name, password, a QR code to
-     join and one to open Cerberus):
-       sudo -u cerberus $PREFIX/.venv/bin/python -m cerberus.wifiap label \\
-         --config $ETC/config.yaml --out /tmp/cerberus-wifi-label.svg
+     join and one to open Cerberus). KNM boxes: from the console (Cerberus
+     boxes). Otherwise, here:
+       sudo $PREFIX/.venv/bin/python -m cerberus.wifiap label \\
+         --config $ETC/config.yaml --out ~/cerberus-wifi-label.svg
      Print it at 100 x 62 mm, then delete the file (it holds the password).
 EOF
