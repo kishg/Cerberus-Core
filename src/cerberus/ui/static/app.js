@@ -1682,20 +1682,17 @@ function renderAccess(a) {
   const card = el("section", { class: "card set-group access" });
   card.append(el("h2", {}, "Open Cerberus on your phone"));
   if (a.lan) card.append(addressRow("On the van's network", a.lan, "From a phone or laptop on the van's WiFi."));
-  card.append(el("p", { class: "help" }, "Away from the van: remote access comes with a Cerberus Cloud subscription."));
-  // Who else can reach this box (Core #48). Shown whenever it's on a tailnet.
-  const sup = a.support, net = a.tailnet;
+  card.append(el("p", { class: "help" }, "Away from the van: remote access comes with a Cerberus Cloud subscription. Or bring your own VPN; that is set up outside Cerberus."));
+  // Support access (Core #48), without the support tailnet's address (Core #52).
+  const sup = a.support;
   if (sup && sup.on) {
     const row = el("div", { class: "set-row support-on" });
     const head = el("div", { class: "set-head" });
     head.append(el("span", { class: "name" }, "Support access: on"));
     row.append(head);
-    row.append(el("p", {}, `${sup.provider || "Your support provider"} can reach this box for support` +
-      (net && net.tailnet ? ` (tailnet ${net.tailnet}).` : ".")));
+    row.append(el("p", {}, `${sup.provider || "Your support provider"} can reach this box for support.`));
     row.append(el("p", { class: "help" }, (sup.contact ? `To end it, contact ${sup.contact}. ` : "") + sup.end));
     card.append(row);
-  } else if (net && net.tailnet) {
-    card.append(el("p", { class: "help" }, `This box is on the tailnet ${net.tailnet}${net.name ? ` as ${net.name}` : ""}: anyone that tailnet allows can reach it.`));
   }
   if (card.children.length > 1) form.prepend(card);
 }
@@ -1832,7 +1829,7 @@ function renderPhone(signedIn) {
   card.append(el("h2", {}, "This phone's location"),
     el("p", { class: "help" }, "For vans without GPS on the Cerbo: while Cerberus is open on this phone, it sends the phone's position, and the van uses it for the weather when the phone is with the van (on the van's network, or while driving). Positions stay on the box."));
   if (!phoneCapable()) {
-    card.append(el("p", { class: "help" }, "This browser shares location only over HTTPS. Open Cerberus at its https://….ts.net address (set up with tailscale serve), or on the box at http://localhost:8088."));
+    card.append(el("p", { class: "help" }, "This browser shares location only over HTTPS. Open Cerberus through Cerberus Cloud, or on the box at http://localhost:8088."));
   } else if (!signedIn) {
     card.append(el("p", { class: "help" }, "Sign in above to turn it on."));
   } else {

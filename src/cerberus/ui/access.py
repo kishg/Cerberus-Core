@@ -4,10 +4,10 @@
   network. The only address Settings offers: remote access is a Cerberus
   Cloud feature, and an owner's own VPN is their setup, not Cerberus's
   (Core #52). So Settings no longer offers a Tailscale address.
-* **Support access (Core #48):** when the box is logged in to a tailnet,
-  Settings says which one, and when that is the support provider's tailnet
-  (``support.tailnet`` in config), says plainly that support access is on, who
-  has it, and how to end it. Owner-visible support access is a rule of the
+* **Support access (Core #48):** when the box is on the support provider's
+  tailnet (``support.tailnet`` in config), Settings says plainly that support
+  access is on, who has it, and how to end it. It never shows the tailnet or
+  the box's address on it (Core #52). Owner-visible support access is a rule of the
   plan, not a nicety. The UI never logs Tailscale in or out.
 
 Tailscale is read only through ``tailscale status --json`` (read-only), cached
@@ -138,4 +138,7 @@ def remote(support_cfg=None, now: float | None = None) -> dict:
 
 
 def view(port: int, now: float | None = None, support_cfg=None) -> dict:
-    return {"lan": lan_url(port), **remote(support_cfg, now)}
+    """What Settings shows: the van-network address and support access. Never the tailnet the
+    box is on or its name there: beta boxes carry the support provider's tailnet, and that address is
+    not the owner's way in (Core #52). Health still reports it (``remote``)."""
+    return {"lan": lan_url(port), "support": remote(support_cfg, now)["support"]}

@@ -32,8 +32,8 @@ cloud relay later):
                                   and what setup detection proposes for each
   GET  /api/v1/setup/detect       what the Cerbo reports, and the proposals (cerberus.detect,
                                   plus settings learned from history, cerberus.learn)
-  GET  /api/v1/access             the van-network address to open Cerberus at, the tailnet the box
-                                  is on, and whether support access is on (support: in config)
+  GET  /api/v1/access             the van-network address to open Cerberus at, and whether support
+                                  access is on (support: in config); never the tailnet address
   GET  /api/v1/setup/status       set up yet?, the Cerbo connection (never the password)
   POST /api/v1/setup/discover     GX devices on the box's networks       } first-run
   POST /api/v1/setup/probe        {address, password} -> portal ID and   } setup
