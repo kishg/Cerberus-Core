@@ -163,7 +163,8 @@ support:
 
 While the box is logged in to that tailnet, Settings shows **Support access:
 on**, the provider, and how to end it (ask them, or `sudo tailscale logout`
-on the box). On any other tailnet, Settings names it. Without a `support:`
+on the box). Settings never shows a tailnet's name or the box's address on it.
+Without a `support:`
 section nothing extra is shown. Cerberus only reads `tailscale status`; it
 never logs Tailscale in or out.
 
