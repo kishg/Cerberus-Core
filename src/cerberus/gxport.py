@@ -362,10 +362,21 @@ def with_gx_port(cfg, status: dict):
 
 # ------------------------------------------------------------------ running it
 
+_notify_socket: str | None = None
+
+
+def take_notify_socket() -> None:
+    """Keep systemd's notify socket for this process only. Left in the environment, the commands this
+    service runs (networkctl, systemctl, ...) inherit it and send their own notifications, which
+    systemd refuses (NotifyAccess=main) and logs as a warning every poll."""
+    global _notify_socket
+    _notify_socket = os.environ.pop("NOTIFY_SOCKET", None) or _notify_socket
+
+
 def notify_ready() -> None:
     """Tell systemd (Type=notify) the status is written, so the collector, ordered after this
     service, reads a status that's there."""
-    addr = os.environ.get("NOTIFY_SOCKET")
+    addr = _notify_socket or os.environ.get("NOTIFY_SOCKET")
     if not addr:
         return
     if addr.startswith("@"):
@@ -528,6 +539,7 @@ def main(argv: list[str] | None = None) -> int:
     if os.geteuid() != 0:
         print("run it as root (it is a systemd service: cerberus-gx-port)", file=sys.stderr)
         return 1
+    take_notify_socket()
     return run(args.config)
 
 
