@@ -901,7 +901,7 @@ def main() -> int:
     parser.add_argument("--config", default="config.yaml", type=Path)
     parser.add_argument("--log-level", default="INFO")
     args = parser.parse_args()
-    setup_logging(args.log_level)
+    setup_logging(args.log_level, service="cerberus-ble")
 
     # Like the collector, wait rather than exit on a box not set up yet (or
     # with BLE off): exiting would only make systemd/launchd restart it in a

@@ -32,6 +32,7 @@ import sqlite3
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import tzinfo
 from pathlib import Path
@@ -216,7 +217,7 @@ class Reporter:
             return
         self._thread = threading.Thread(target=self._loop, name="cerberus-health-report", daemon=True)
         self._thread.start()
-        log.info("health reports to %s every %ss", self.cfg.target_url, self.cfg.interval_seconds)
+        log.info("health reports to %s every %ss", urllib.parse.urlsplit(self.cfg.target_url).hostname, self.cfg.interval_seconds)
 
     def stop(self) -> None:
         self._stop.set()

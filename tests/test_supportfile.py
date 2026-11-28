@@ -7,7 +7,6 @@ from __future__ import annotations
 import io
 import json
 import shutil
-import subprocess
 import threading
 import urllib.error
 import urllib.request
@@ -89,7 +88,7 @@ SECRETS = (CERBO_PASSWORD, VRM_TOKEN, GOVEE_KEY, SYNC_TOKEN_VALUE, CLOUD_TOKEN_V
 
 
 def _build(box, **kw):
-    return supportfile.build(box["cfg"], box["db"]._path, now=NOW, have_journal=False, **kw)
+    return supportfile.build(box["cfg"], box["db"]._path, now=NOW, log_dir=None, **kw)
 
 
 def _all_text(files):
@@ -150,26 +149,36 @@ def test_contents(box):
 
 
 def test_works_without_a_database(box, tmp_path):
-    files = supportfile.build(box["cfg"], str(tmp_path / "missing.db"), now=NOW, have_journal=False)
+    files = supportfile.build(box["cfg"], str(tmp_path / "missing.db"), now=NOW, log_dir=None)
     assert "could not be read" in files["status.md"]
     assert "config.yaml" in files and "box.json" in files
 
 
-def test_journal_logs_on_a_box(box):
-    calls = []
-
-    def runner(cmd, **kw):
-        calls.append(cmd)
-        unit = cmd[cmd.index("-u") + 1]
-        if unit == "cerberus-wifi":
-            return subprocess.CompletedProcess(cmd, 1, "", "No journal files were opened")
-        return subprocess.CompletedProcess(cmd, 0, f"{unit} line api_key={GOVEE_KEY}\n", "")
-
-    files = supportfile.build(box["cfg"], box["db"]._path, now=NOW, log_runner=runner, have_journal=True)
-    assert {c[c.index("-u") + 1] for c in calls} == set(supportfile.UNITS)
-    assert "cerberus-ui line" in files["logs/cerberus-ui.log"]
-    assert "could not read" in files["logs/cerberus-wifi.log"]
+def test_box_reads_each_services_own_log_file(box, tmp_path):
+    logs = tmp_path / "var-log-cerberus"
+    logs.mkdir()
+    (logs / "cerberus-ui.log").write_text("".join(f"ui line {i}\n" for i in range(400)))
+    (logs / "cerberus-ble.log").write_text(f"ble line api_key={GOVEE_KEY}\n")
+    # Just rotated: the current file is short, the rest comes from .1.
+    (logs / "cerberus.log.1").write_text("".join(f"old {i}\n" for i in range(10)))
+    (logs / "cerberus.log").write_text("new 0\nnew 1\n")
+    files = supportfile.build(box["cfg"], box["db"]._path, now=NOW, log_dir=str(logs))
+    ui = files["logs/cerberus-ui.log"].splitlines()
+    assert len(ui) == supportfile.LOG_LINES and ui[-1] == "ui line 399" and ui[0] == "ui line 100"
+    assert files["logs/cerberus.log"].splitlines() == [f"old {i}" for i in range(10)] + ["new 0", "new 1"]
+    assert "couldn't be read" in files["logs/cerberus-wifi.log"]       # not written yet
     assert GOVEE_KEY not in _all_text(files)
+    assert "soak" not in " ".join(files) and "cerberus starting" not in _all_text(files)   # not the Mac's
+
+
+def test_log_dir_comes_from_the_environment(monkeypatch, tmp_path):
+    monkeypatch.setenv("CERBERUS_LOG_DIR", str(tmp_path))
+    assert supportfile.log_dir() == str(tmp_path)
+    monkeypatch.delenv("CERBERUS_LOG_DIR")
+    monkeypatch.setattr(supportfile.sys, "platform", "linux")
+    assert supportfile.log_dir() == supportfile.BOX_LOG_DIR
+    monkeypatch.setattr(supportfile.sys, "platform", "darwin")
+    assert supportfile.log_dir() is None
 
 
 @pytest.mark.parametrize("name, secret", [

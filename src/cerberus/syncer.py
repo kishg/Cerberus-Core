@@ -46,6 +46,7 @@ import logging
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -159,7 +160,7 @@ class Syncer:
             return
         self._thread = threading.Thread(target=self._loop, name="cerberus-syncer", daemon=True)
         self._thread.start()
-        log.info("syncer started: %s, tables %s", self.cfg.target_url, ", ".join(self.cfg.tables))
+        log.info("syncer started: to %s, tables %s", urllib.parse.urlsplit(self.cfg.target_url).hostname, ", ".join(self.cfg.tables))
 
     def stop(self) -> None:
         self._stop.set()

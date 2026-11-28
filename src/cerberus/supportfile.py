@@ -17,7 +17,8 @@ Inside (``SECTIONS``):
 - ``box.json``     Core version, device ID and box health (uptime, disk,
                    memory, CPU temperature, restarts, the GX link)
 - ``config.yaml`` / ``setup.yaml``  the settings, with secrets removed
-- ``logs/*.log``   the last lines of each service's log
+- ``logs/*.log``   the last lines of each service's own log file (cerberus.log), never
+                   the system journal
 
 **No secrets.** Never read into the file: ``.env``, the secrets folder, the
 PIN and session files. Secrets are kept out three ways, each enough alone
@@ -46,9 +47,8 @@ import io
 import json
 import os
 import re
-import shutil
 import sqlite3
-import subprocess
+import sys
 import time
 import zipfile
 from datetime import datetime, timezone
@@ -58,6 +58,7 @@ import yaml
 
 from . import config as cfg_mod
 from . import envfile, findings_log, health, healthreport, location, notes, status
+from . import log as log_mod
 from .secretstore import SecretStore
 
 REMOVED = "[removed]"
@@ -69,10 +70,12 @@ EVENTS_DAYS = 7
 EVENTS_MAX = 1000
 KV_DEVICE_ID = "device.id"
 
-# Each service's log: journald on a box, files beside config.yaml (soak/) on a Mac.
-UNITS = ("cerberus", "cerberus-ui", "cerberus-ble", "cerberus-wifi")
-LOG_FILES = ("cerberus.log", "cerberus-ui.log", "cerberus-ble.log")
-LOG_DIR = "soak"
+# Each service's log: its own file on a box (cerberus.log: /var/log/cerberus/<service>.log), never
+# the system journal; on a Mac, the launchd logs beside config.yaml (soak/).
+BOX_LOG_DIR = "/var/log/cerberus"
+MAC_LOG_FILES = ("cerberus.log", "cerberus-ui.log", "cerberus-ble.log")
+MAC_LOG_DIR = "soak"
+AUTO = object()
 
 SECTIONS = (
     ("status.md", "Status table: the last 24 h against the 24 h before"),
@@ -303,36 +306,47 @@ def _tail_file(path: Path, n: int) -> str:
     return "\n".join(data.splitlines()[-n:]) + "\n"
 
 
-def _journal(unit: str, n: int, runner=subprocess.run) -> str:
-    r = runner(["journalctl", "-u", unit, "-n", str(n), "--no-pager", "-q", "-o", "short-iso"],
-               capture_output=True, text=True, timeout=20)
-    if r.returncode != 0:
-        raise OSError((r.stderr or "").strip() or f"journalctl exit {r.returncode}")
-    if not r.stdout.strip():
-        raise OSError("no lines (the UI may not be allowed to read the system journal)")
-    return r.stdout
+def _tail_rotated(path: Path, n: int) -> str:
+    """The last n lines of a service's log, topped up from its previous file (.1) just after a rotation."""
+    text = _tail_file(path, n)
+    lines = text.splitlines()
+    older = path.with_name(path.name + ".1")
+    if len(lines) < n and older.is_file():
+        try:
+            lines = _tail_file(older, n - len(lines)).splitlines() + lines
+        except OSError:
+            pass
+    return "\n".join(lines) + "\n"
 
 
-def service_logs(config_path: str | Path, n: int = LOG_LINES, runner=subprocess.run,
-                 have_journal: bool | None = None) -> dict[str, str]:
-    """{file name: the last n lines}; a line saying why when a log can't be read."""
+def log_dir() -> str | None:
+    """Where the services' own log files are: CERBERUS_LOG_DIR (the units set it), else
+    /var/log/cerberus on Linux; None on a Mac, whose logs are in soak/ beside config.yaml."""
+    d = os.environ.get(log_mod.LOG_DIR_ENV)
+    if d:
+        return d
+    return BOX_LOG_DIR if sys.platform.startswith("linux") else None
+
+
+def service_logs(config_path: str | Path, n: int = LOG_LINES, directory: str | Path | None | object = AUTO
+                 ) -> dict[str, str]:
+    """{file name: the last n lines}; a line saying why when a log can't be read.
+
+    On a box: each service's file in the log folder (cerberus.log), never the system journal.
+    directory=None: a Mac's soak/*.log beside config.yaml (launchd writes them)."""
+    if directory is AUTO:
+        directory = log_dir()
     out: dict[str, str] = {}
-    if have_journal is None:
-        have_journal = shutil.which("journalctl") is not None
-    if have_journal:
-        for unit in UNITS:
-            try:
-                out[f"{unit}.log"] = _journal(unit, n, runner)
-            except (OSError, subprocess.SubprocessError) as err:
-                out[f"{unit}.log"] = f"(could not read the {unit} log: {err})\n"
-    folder = Path(config_path).parent / LOG_DIR
-    for name in LOG_FILES:
-        p = folder / name
-        if p.is_file() and name not in out:
-            try:
-                out[name] = _tail_file(p, n)
-            except OSError as err:
-                out[name] = f"(could not read {name}: {err})\n"
+    if directory is not None:
+        paths = [(f"{svc}.log", log_mod.log_path(directory, svc)) for svc in log_mod.SERVICES]
+    else:
+        folder = Path(config_path).parent / MAC_LOG_DIR
+        paths = [(name, folder / name) for name in MAC_LOG_FILES if (folder / name).is_file()]
+    for name, p in paths:
+        try:
+            out[name] = _tail_rotated(p, n)
+        except OSError as err:
+            out[name] = f"(couldn't be read: {name}: {err.strerror or err})\n"
     return out
 
 
@@ -361,7 +375,7 @@ def _dump(obj) -> str:
 
 
 def build(config_path: str | Path, db_path: str, *, include_position: bool = False,
-          now: int | None = None, log_runner=subprocess.run, have_journal: bool | None = None,
+          now: int | None = None, log_dir: str | Path | None | object = AUTO,
           ctx=None) -> dict[str, str]:
     """Every file in the support file, {path: text}, secrets (and position, unless included) removed.
 
@@ -405,7 +419,7 @@ def build(config_path: str | Path, db_path: str, *, include_position: bool = Fal
         if conn is not None:
             conn.close()
     files.update(config_files(config_path, include_position))
-    for name, text in service_logs(config_path, runner=log_runner, have_journal=have_journal).items():
+    for name, text in service_logs(config_path, directory=log_dir).items():
         files[f"logs/{name}"] = text
     secrets = known_secrets(config_path)
     files = {k: scrub_text(v, secrets, include_position or k.endswith(".json")) for k, v in files.items()}

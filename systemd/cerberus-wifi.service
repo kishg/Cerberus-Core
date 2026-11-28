@@ -10,6 +10,10 @@ Type=simple
 # of it when it stops. Everything it reads is the settings (wifi_ap in config.yaml / setup.yaml) and the
 # password (secrets/wifi_password); everything it writes is /run/cerberus-wifi (status for the UI, no
 # password) and, the first time, that password.
+# Its own log file too, beside the journal (src/cerberus/log.py; the support file reads it). Runs as
+# root, so it doesn't own the folder: install-linux.sh makes /var/log/cerberus cerberus:cerberus
+# 0750, and the file takes the folder's group (0640).
+Environment=CERBERUS_LOG_DIR=/var/log/cerberus
 WorkingDirectory=/opt/cerberus
 ExecStart=/opt/cerberus/.venv/bin/python -m cerberus.wifiap run --config /etc/cerberus/config.yaml
 Restart=on-failure

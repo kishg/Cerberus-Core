@@ -10,6 +10,8 @@
 #                           and the Cerbo password in .env; Settings writes
 #                           setup.yaml; the PIN hash and phone position)
 #   /var/lib/cerberus       the database (the collector's StateDirectory)
+#   /var/log/cerberus       each service's log file, 0750, files 0640, rotated
+#                           (cerberus.log); the support file reads them
 #   systemd units           cerberus (collector), cerberus-ui, cerberus-ble
 #
 # No config.yaml is installed: on a new box the collector and the BLE sidecar
@@ -25,6 +27,7 @@ SRC="$(cd "$(dirname "$0")/.." && pwd)"
 PREFIX=/opt/cerberus
 ETC=/etc/cerberus
 STATE=/var/lib/cerberus
+LOGS=/var/log/cerberus
 APT=1
 SYSTEMD=1
 for arg in "$@"; do
@@ -79,6 +82,10 @@ fi
 
 say "Settings and data directories"
 install -d -o cerberus -g cerberus -m 750 "$ETC" "$STATE"
+# Each service's own log file (cerberus.log), which the support file reads: the UI reads these,
+# never the system journal. Made here too, not only by the units' LogsDirectory=, because
+# cerberus-wifi runs as root and must find it owned by cerberus.
+install -d -o cerberus -g cerberus -m 750 "$LOGS"
 
 if [[ $SYSTEMD -eq 1 ]]; then
   say "systemd units"

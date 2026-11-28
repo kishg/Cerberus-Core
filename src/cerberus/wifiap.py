@@ -447,7 +447,9 @@ def main(argv: list[str] | None = None) -> int:
     lb.add_argument("--config", required=True)
     lb.add_argument("--out", required=True, help="where to write the label, e.g. cerberus-wifi-label.svg")
     args = ap.parse_args(argv)
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    from .log import setup_logging
+    setup_logging("INFO", service="cerberus-wifi" if args.cmd == "run" else None,
+                  fmt="%(levelname)s %(name)s: %(message)s")
     if args.cmd == "label":
         from .config import read_raw
         s = settings_from(read_raw(args.config))
