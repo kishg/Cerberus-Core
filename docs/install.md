@@ -229,6 +229,9 @@ box's services.
 - **Update:** `git pull` in the checkout, then `sudo bin/install-linux.sh`.
 - **Logs:** `journalctl -u cerberus -u cerberus-ui -u cerberus-ble -u cerberus-wifi -f`.
   "waiting for first-run setup" before setup is normal.
+- **Support file:** Settings > Support > Download support file (signed in) gives one zip for
+  support: status, health, findings, events, box health, settings and the last lines of each log,
+  with secrets removed and the position only if ticked (`cerberus.supportfile`).
 - **Remove:** `sudo systemctl disable --now cerberus cerberus-ui cerberus-ble cerberus-wifi cerberus-wifi.path`,
   then delete `/opt/cerberus`, and `/etc/cerberus` and `/var/lib/cerberus`
   if the settings and history should go too.

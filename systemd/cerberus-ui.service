@@ -18,7 +18,9 @@ RestartSec=5
 User=cerberus
 Group=cerberus
 # Settings > Bluetooth devices > Scan runs from the UI (BlueZ over D-Bus).
-SupplementaryGroups=bluetooth
+# systemd-journal: Settings > Support > Download support file includes the last lines
+# of each Cerberus service's log (journalctl -u, read-only; cerberus.supportfile).
+SupplementaryGroups=bluetooth systemd-journal
 
 [Install]
 WantedBy=multi-user.target
