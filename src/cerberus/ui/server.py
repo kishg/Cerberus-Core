@@ -9,6 +9,7 @@ cloud relay later):
                                   a resolution note; the latest closed ones
   GET  /api/v1/findings/log       every numbered occurrence and how it ended (findings_log)
   GET  /api/v1/health             source freshness, coverage, gaps and causes
+                                  and the box's own Wi-Fi network (state, phones joined)
   GET  /api/v1/status             the 24 h status table and the owner's recent notes
                                   (cerberus.status; tools/status_report.py --url)
   GET  /api/v1/about              license, source link (AGPL-3.0 s.13), device id
@@ -402,8 +403,11 @@ def make_handler(app: App):
                     view = status.status_view(conn, int(time.time()), ctx.tz, notes=self._notes())
                     return self._json(200, {**view, "tz": ctx.tz_name})
                 if ep == "health":
-                    return self._json(200, {**health.health_view(conn, int(time.time()), ctx.tz),
-                                            "remote": access.remote(self._support_cfg())})
+                    now = int(time.time())
+                    st = wifiap.read_status(app.wifi_status_dir)
+                    wifi = {**wifiap.health(st, now), "error": st.get("error") if isinstance(st.get("error"), str) else None}
+                    return self._json(200, {**health.health_view(conn, now, ctx.tz),
+                                            "remote": access.remote(self._support_cfg()), "wifi": wifi})
                 if ep == "health-report":
                     return self._json(200, self._health_report_view(conn))
                 if ep == "sync":

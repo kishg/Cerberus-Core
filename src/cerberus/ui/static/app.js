@@ -1071,6 +1071,28 @@ const GAP_ICON = { cerbo: "warning", network: "warning", partial: "info", restar
 
 function hours(s) { return s < 3600 ? `${Math.round(s / 60)} min` : `${fmtNum(s / 3600, s < 36000 ? 1 : 0)} h`; }
 
+// The box's own Wi-Fi network (Core #53) as one more row: how a phone reaches the box with no router.
+const WIFI_HEALTH = {
+  on: ["good", "On"], stale: ["warning", "Not answering"], error: ["warning", "Not working"],
+  off: ["muted", "Off"], unavailable: ["muted", "Not available"], unknown: ["muted", "Not reported yet"],
+};
+function wifiHealthRow(w) {
+  const tr = el("tr"), name = el("td");
+  name.append(document.createTextNode("Box Wi-Fi network"));
+  const note = w.state === "on" ? `${w.security || "WPA2"}, channel ${w.channel}`
+    : w.state === "stale" ? "The Wi-Fi service stopped reporting, so phones may not be able to join."
+    : w.error || null;
+  if (note) name.append(el("span", { class: "note" }, note));
+  const [icon, text] = WIFI_HEALTH[w.state] || ["muted", w.state];
+  const st = el("span", { class: "st" });
+  st.append(statusIcon(icon), document.createTextNode(text));
+  const stc = el("td"); stc.append(st);
+  const phones = w.state !== "on" ? "—"
+    : w.clients ? `${w.clients} phone${w.clients === 1 ? "" : "s"} joined` : "No phones joined";
+  tr.append(name, el("td", {}, phones), stc);
+  return tr;
+}
+
 function renderHealth(d) {
   const tbody = document.querySelector("#sources tbody");
   tbody.replaceChildren();
@@ -1085,6 +1107,7 @@ function renderHealth(d) {
     tr.append(name, el("td", {}, s.age_s < 120 ? "just now" : ago(s.last_ts, d.now)), stc);
     tbody.append(tr);
   }
+  if (d.wifi) tbody.append(wifiHealthRow(d.wifi));
 
   const cov = chartCard("Collected, last 7 days", "% of each day with live battery data");
   document.getElementById("coverage").replaceChildren(cov.card);

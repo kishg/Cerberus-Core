@@ -299,6 +299,32 @@ def read_status(status_dir: Path = STATUS_DIR) -> dict:
         return {"state": "unknown"}
 
 
+STALE_S = 3 * POLL_S + 30             # "on" but not rewritten for this long: the service has stopped answering
+
+
+def health(status: dict, now: int) -> dict:
+    """The network's state for box health (the health page and the Cloud's health report).
+
+    Never the name, password, address or anything about the phones beyond how many: the report goes
+    to the Cloud. ``stale`` is a service that said "on" but stopped rewriting its status (hung or
+    killed without cleaning up); off, error and unavailable are final, the service exits after them."""
+    state = status.get("state") if isinstance(status.get("state"), str) else "unknown"
+    updated = status.get("updated")
+    if state == "on" and (not isinstance(updated, (int, float)) or now - updated > STALE_S):
+        state = "stale"
+    on = state == "on"
+    since = status.get("since")
+    clients = status.get("clients")
+    channel = status.get("channel")
+    return {
+        "state": state,
+        "security": status.get("security") if on and isinstance(status.get("security"), str) else None,
+        "channel": channel if on and isinstance(channel, int) and not isinstance(channel, bool) else None,
+        "clients": clients if on and isinstance(clients, int) and not isinstance(clients, bool) else None,
+        "up_s": max(0, now - int(since)) if on and isinstance(since, (int, float)) else None,
+    }
+
+
 # ------------------------------------------------------------------ running it
 
 class Network:

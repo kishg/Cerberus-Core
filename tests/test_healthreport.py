@@ -46,6 +46,7 @@ ALLOWED = {
     "sources", "sources.key", "sources.status", "sources.age_s",
     "coverage_today_pct",
     "gx", "gx.lan", "gx.cause", "gx.down_s", "gx.fallback",      # the GX link (#66): times only
+    "wifi", "wifi.state", "wifi.security", "wifi.channel", "wifi.clients", "wifi.up_s",   # Core #53
 }
 
 
@@ -89,12 +90,30 @@ def _seed(db: Db) -> None:
 
 def _report(db, tmp_path, **kw):
     args = dict(device_id=DEVICE, interval_s=900, started_at=NOW - 1800, last_ok_at=None,
-                db_path=str(tmp_path / "c.db"), thermal_root=str(tmp_path / "no-thermal"))
+                db_path=str(tmp_path / "c.db"), thermal_root=str(tmp_path / "no-thermal"),
+                wifi_status_dir=tmp_path / "no-wifi")
     args.update(kw)
     return hr.build(db.conn, NOW, **args)
 
 
 # -- the report -----------------------------------------------------------------
+
+def test_report_carries_the_wifi_state_but_not_its_name_or_address(db, tmp_path):
+    from cerberus import wifiap
+    st = tmp_path / "wifi"
+    wifiap.write_status({"state": "on", "ssid": "Cerberus-TEST", "interface": "wlan9", "address": "10.99.0.1",
+                         "channel": 6, "security": "WPA2/WPA3", "clients": 2, "since": NOW - 3600,
+                         "updated": NOW - 10}, st)
+    r = _report(db, tmp_path, wifi_status_dir=st)
+    assert r["wifi"] == {"state": "on", "security": "WPA2/WPA3", "channel": 6, "clients": 2, "up_s": 3600}
+    text = json.dumps(r)
+    for leak in ("Cerberus-TEST", "10.99.0.1", "wlan9"):
+        assert leak not in text, leak
+
+
+def test_report_without_a_wifi_service_says_unknown(db, tmp_path):
+    assert _report(db, tmp_path)["wifi"]["state"] == "unknown"
+
 
 def test_report_is_box_health_only(db, tmp_path):
     _seed(db)

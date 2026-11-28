@@ -220,3 +220,48 @@ def test_label_command_draws_both_codes_and_the_password(tmp_path):
     assert store.get(wifiap.SECRET) in svg and store.get(wifiap.SSID_SECRET) in svg
     assert svg.count("<svg") == 3 and "http://10.42.0.1:8088" in svg          # the label and its two codes
     assert (out.stat().st_mode & 0o077) == 0                                   # it holds the password
+
+
+# -- box health (Core #53) ------------------------------------------------------
+
+HNOW = 1_800_000_000
+ON = {"state": "on", "ssid": "Cerberus-TEST", "interface": "wlan9", "address": "10.99.0.1", "channel": 11,
+      "security": "WPA2", "clients": 1, "since": HNOW - 120, "updated": HNOW - 5}
+
+
+def test_health_of_a_running_network():
+    assert wifiap.health(ON, HNOW) == {"state": "on", "security": "WPA2", "channel": 11, "clients": 1, "up_s": 120}
+
+
+def test_health_never_carries_the_name_address_or_interface():
+    text = json.dumps(wifiap.health(ON, HNOW))
+    for leak in ("Cerberus-TEST", "10.99.0.1", "wlan9"):
+        assert leak not in text
+
+
+@pytest.mark.parametrize("updated", [HNOW - wifiap.STALE_S - 1, None, "soon"])
+def test_health_of_a_service_that_stopped_rewriting_its_status_is_stale(updated):
+    h = wifiap.health({**ON, "updated": updated}, HNOW)
+    assert h == {"state": "stale", "security": None, "channel": None, "clients": None, "up_s": None}
+
+
+def test_health_just_inside_the_stale_limit_is_still_on():
+    assert wifiap.health({**ON, "updated": HNOW - wifiap.STALE_S}, HNOW)["state"] == "on"
+
+
+@pytest.mark.parametrize("status, state", [
+    ({"state": "off", "updated": 1}, "off"),                     # final states never go stale
+    ({"state": "error", "error": "hostapd couldn't start", "updated": 1}, "error"),
+    ({"state": "unavailable", "updated": 1}, "unavailable"),
+    ({"state": "unknown"}, "unknown"),                          # read_status with no file
+    ({}, "unknown"),
+    ({"state": 7}, "unknown"),
+])
+def test_health_of_other_states(status, state):
+    h = wifiap.health(status, HNOW)
+    assert h["state"] == state and h["clients"] is None and h["up_s"] is None
+
+
+def test_health_ignores_wrong_types():
+    h = wifiap.health({**ON, "clients": True, "channel": "6", "since": "x", "security": 3}, HNOW)
+    assert h == {"state": "on", "security": None, "channel": None, "clients": None, "up_s": None}

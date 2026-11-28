@@ -8,7 +8,7 @@ waiting for the owner.
 
 **Box health only, never van data.** A report says what the box is (device
 ID, Core version), how it is (uptime, restarts, disk, memory, CPU
-temperature) and whether each data source is arriving (status and age, from
+temperature, the state of its own Wi-Fi network) and whether each data source is arriving (status and age, from
 ``cerberus.health``), plus today's coverage percentage. It carries no
 readings (no voltages, currents, temperatures of the van, state of charge)
 and no position. ``build()`` assembles it from an allowlist, and
@@ -37,7 +37,7 @@ import urllib.request
 from datetime import tzinfo
 from pathlib import Path
 
-from . import health
+from . import health, wifiap
 from .config import HealthReportConfig
 from .db import Db
 
@@ -166,7 +166,8 @@ def gx_link(conn: sqlite3.Connection, now: int) -> dict | None:
 
 def build(conn: sqlite3.Connection, now: int, *, device_id: str, interval_s: int,
           started_at: int, last_ok_at: int | None, db_path: str,
-          tz: tzinfo | None = None, thermal_root: str = "/sys/class/thermal") -> dict:
+          tz: tzinfo | None = None, thermal_root: str = "/sys/class/thermal",
+          wifi_status_dir: Path = wifiap.STATUS_DIR) -> dict:
     """The report, from an allowlist. Nothing about the van's readings or position."""
     since = last_ok_at if last_ok_at else max(started_at, now - 86400)
     sources = []
@@ -193,6 +194,8 @@ def build(conn: sqlite3.Connection, now: int, *, device_id: str, interval_s: int
         },
         "sources": sources,
         "gx": gx_link(conn, now),
+        # The box's own Wi-Fi network (Core #53): state, security, channel, how many phones. No name or address.
+        "wifi": wifiap.health(wifiap.read_status(wifi_status_dir), now),
         "coverage_today_pct": coverage[-1][1] if coverage else None,
     }
 
