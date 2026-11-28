@@ -23,6 +23,8 @@ cloud relay later):
   GET  /api/v1/wifi               the box's own Wi-Fi network (cerberus.wifiap): on/off, state, name,
                                   address, phones joined; the password only with a session
   GET  /api/v1/wifi/qr.svg        the QR code a phone's camera reads to join it; needs a session
+  POST /api/v1/wifi/identity/new-label-password  the box's local client only: a new password for the box's
+                                  label, used from now on (the old label stops working); answers like GET
   GET  /api/v1/wifi/identity      the box's local client only (its cloud agent): the network's name, the
                                   password printed on the box's label, and the UI's address, so KNM's
                                   console can print the label; made if there's none yet
@@ -562,6 +564,17 @@ def make_handler(app: App):
             addr = self.client_address[0]
             local = localclient.authorized(app.config_path, addr, self.headers)
             try:
+                if ep == "wifi/identity/new-label-password":
+                    # KNM's console replacing a lost label (Core #53): only the box's own agent.
+                    if not local:
+                        return self._json(403, {"error": "only the box's local client"})
+                    store = SecretStore.for_config(app.config_path)
+                    name, _ = wifiap.identity(store)
+                    pw = wifiap.new_label_password(store)
+                    s = wifiap.settings_from(cfg_mod.read_raw(app.config_path))
+                    log.info("box Wi-Fi: a new label password, from the local client")
+                    return self._json(200, {"ssid": name, "password": pw, "enabled": s.enabled,
+                                            "url": f"http://{ipaddress.ip_interface(s.address).ip}:{wifiap.UI_PORT}"})
                 if ep in ("cloud/link", "cloud/unlink"):
                     # Only the box's own local client (cerberus.localclient), never a person or the network.
                     if not local:

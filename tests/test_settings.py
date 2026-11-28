@@ -348,6 +348,20 @@ def test_wifi_identity_is_for_the_box_local_client_only(cfg, tmp_path):
         assert ident["password"] == store.get(wifiap.LABEL_SECRET) and ident["url"] == "http://10.42.0.1:8088"
         store.set(wifiap.SECRET, "ChangedPass12")                              # the label shows the label's
         assert get(good)[1]["password"] == store.get(wifiap.LABEL_SECRET) != "ChangedPass12"
+        # A lost label: a new label password, used from now on, from the local client only.
+        def post(headers):
+            r = urllib.request.Request(base + "/api/v1/wifi/identity/new-label-password", data=b"{}", method="POST",
+                                       headers={"Host": "127.0.0.1", "Content-Type": "application/json", **headers})
+            try:
+                with urllib.request.urlopen(r, timeout=5) as resp:
+                    return resp.status, json.loads(resp.read())
+            except urllib.error.HTTPError as e:
+                return e.code, None
+        old_label = store.get(wifiap.LABEL_SECRET)
+        assert post({})[0] == 403 and post({**good, "X-Cerberus-Via": "relay"})[0] == 403
+        code, fresh = post(good)
+        assert code == 200 and fresh["password"] != old_label and fresh["ssid"] == ident["ssid"]
+        assert store.get(wifiap.LABEL_SECRET) == store.get(wifiap.SECRET) == fresh["password"]
     finally:
         httpd.shutdown()
         httpd.server_close()
