@@ -3,7 +3,7 @@
 Remote access is a Cerberus Cloud feature (Core #52), so no Tailscale address is offered, and the
 access screen never shows the tailnet the box is on or its name there (beta boxes carry the support
 provider's tailnet). "Support access: on" is shown when the box is on that tailnet (Core #48);
-health still reports the tailnet.
+health says only whether support access is on, never the tailnet's name.
 """
 
 from __future__ import annotations
@@ -70,7 +70,8 @@ def test_status_is_cached(monkeypatch):
     monkeypatch.setattr(access, "_tailscale", lambda: "/usr/bin/tailscale")
     monkeypatch.setattr(access, "_json", lambda cmd: calls.append(cmd) or SUPPORTED)
     monkeypatch.setattr(access, "_cache", None)
-    assert access.remote(SUPPORT, now=0)["support"]["on"] is True
+    r = access.remote(SUPPORT, now=0)
+    assert r["support"]["on"] is True and r["support_access"] is True and "tailnet" not in r
     access.remote(SUPPORT, now=30)
     assert len(calls) == 1
     access.remote(SUPPORT, now=61)
@@ -101,7 +102,9 @@ def test_access_and_health_apis_say_when_support_is_on(tmp_path, monkeypatch):
         assert "acme-support.example" not in body and "beta-box-1" not in body
         code, h = get("/health")
         assert code == 200 and h["remote"]["support"]["provider"] == "Acme Support"
-        assert h["remote"]["tailnet"]["tailnet"] == "acme-support.example"
+        assert h["remote"]["support_access"] is True and "tailnet" not in h["remote"]
+        remote = json.dumps(h["remote"])
+        assert "acme-support.example" not in remote and "beta-box-1" not in remote
     finally:
         httpd.shutdown()
         httpd.server_close()
@@ -132,3 +135,11 @@ def test_access_screen_shows_no_tailnet_or_tailscale_setup():
     assert "tailnet" not in card.replace("support tailnet", "")
     assert "your own VPN" in card
     assert "tailscale serve" not in js and ".ts.net" not in js
+
+
+def test_health_remote_without_support(monkeypatch):
+    monkeypatch.setattr(access, "_tailscale", lambda: "/usr/bin/tailscale")
+    monkeypatch.setattr(access, "_json", lambda cmd: OWN)          # the owner's own tailnet
+    monkeypatch.setattr(access, "_cache", None)
+    r = access.remote(SUPPORT)
+    assert r == {"support_access": False, "support": None}

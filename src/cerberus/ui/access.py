@@ -132,13 +132,14 @@ def status(now: float | None = None) -> dict | None:
 
 
 def remote(support_cfg=None, now: float | None = None) -> dict:
-    """Who can reach this box remotely: its tailnet, and support access if configured."""
-    on = tailnet(status(now))
-    return {"tailnet": on, "support": support(on, support_cfg)}
+    """Who can reach this box remotely: whether support access is on, and its details. The
+    tailnet is used here to decide that, but its name is never returned (Core #52)."""
+    sup = support(tailnet(status(now)), support_cfg)
+    return {"support_access": bool(sup), "support": sup}
 
 
 def view(port: int, now: float | None = None, support_cfg=None) -> dict:
     """What Settings shows: the van-network address and support access. Never the tailnet the
     box is on or its name there: beta boxes carry the support provider's tailnet, and that address is
-    not the owner's way in (Core #52). Health still reports it (``remote``)."""
+    not the owner's way in (Core #52). Health (``remote``) leaves it out too."""
     return {"lan": lan_url(port), "support": remote(support_cfg, now)["support"]}
