@@ -176,10 +176,14 @@ It's on by default (`gx_port.enabled`).
   answers to the box's own connections (MQTT): nothing else on the box, and
   nothing forwarded to the van's network or the internet. The rules are their
   own nftables table, `cerberus_gx`, ahead of Docker's.
-- **The collector** tries `10.43.0.10` first whenever the port is set up, then
+- **The collector** tries `10.43.0.10` first when the Cerbo is really on the
+  cable (the link is up and the Cerbo holds its lease or answered there), then
   the Cerbo's other addresses (its Wi-Fi address on the van's network, then
-  `venus.local`). On a box set up before this, it picks the cable up on the
-  next restart; nothing to change in config.yaml.
+  `venus.local`). With no cable it keeps its configured addresses, so it never
+  waits on an empty port. The order is set when it starts: plugging the Cerbo
+  in later restarts the collector once to use the cable; pulling the cable
+  needs no restart (it fails over to the next address). Nothing to change in
+  config.yaml, on a new box or one set up before this.
 - **Which way it's reading:** Health has a **Cerbo cable (box Ethernet)** row:
   "Collecting" over the cable, "No cable", or "Cable in, Cerbo not used" with
   the way it is reading the Cerbo instead (the van's network, or Victron's

@@ -311,11 +311,50 @@ def _config(tmp_path, gx=None):
     return cfg_mod.load(p)
 
 
-def test_collector_tries_the_gx_cable_first_while_the_port_is_up(tmp_path, monkeypatch):
+CABLED = {"state": "on", "gx_address": "10.43.0.10", "interface": "enp1s0", "dhcp": True, "link": "up",
+          "leases": ["10.43.0.10"], "neighbors": ["10.43.0.10"]}
+
+
+@pytest.fixture
+def cfg_env(monkeypatch):
     monkeypatch.setenv("CERBERUS_MQTT_PASSWORD", "pw-test")
     monkeypatch.delenv("CERBERUS_MQTT_HOST", raising=False)
+
+
+def test_link_down_keeps_the_configured_hosts(tmp_path, cfg_env):
+    """The port is set up but no cable (ConfigureWithoutCarrier keeps its route): don't wait on it."""
     cfg = _config(tmp_path)
-    on = {"state": "on", "gx_address": "10.43.0.10", "interface": "enp1s0"}
+    for st in ({**CABLED, "link": "down"}, {**CABLED, "link": "down", "leases": [], "neighbors": []}):
+        assert gxport.with_gx_port(cfg, st).mqtt.hosts == ("192.0.2.5", "venus.local")
+
+
+def test_link_up_with_a_lease_puts_the_cable_first(tmp_path, cfg_env):
+    cfg = _config(tmp_path)
+    for st in (CABLED, {**CABLED, "neighbors": []}, {**CABLED, "leases": []}):
+        assert gxport.with_gx_port(cfg, st).mqtt.hosts == ("10.43.0.10", "192.0.2.5", "venus.local")
+    # carrier, but nothing has taken or answered at the GX's address (a switch, or the GX still booting)
+    assert gxport.with_gx_port(cfg, {**CABLED, "leases": [], "neighbors": []}).mqtt.hosts == ("192.0.2.5", "venus.local")
+    assert gxport.with_gx_port(cfg, {**CABLED, "leases": [], "neighbors": ["169.254.1.2"]}).mqtt.hosts == \
+        ("192.0.2.5", "venus.local")
+
+
+def test_plugging_the_gx_in_while_running_restarts_the_collector_once(tmp_path, cfg_env):
+    from types import SimpleNamespace
+    from cerberus.__main__ import Cerberus
+    app = SimpleNamespace(cfg=_config(tmp_path), _cable_ready=False, restart_requested=False)
+    plugged = lambda st: Cerberus._gx_cable_plugged_in(app, st)  # noqa: E731
+    assert plugged({**CABLED, "link": "down"}) is False and not app.restart_requested
+    assert plugged(CABLED) is True and app.restart_requested                     # GX on the cable: restart
+    app.restart_requested = False
+    assert plugged(CABLED) is False                                              # once, not every tick
+    assert plugged({**CABLED, "link": "down"}) is False and not app.restart_requested   # pulled: failover
+    app.cfg = gxport.with_gx_port(app.cfg, CABLED)
+    assert plugged(CABLED) is False                                              # already first: no restart
+
+
+def test_collector_tries_the_gx_cable_first_while_the_cable_is_in(tmp_path, cfg_env):
+    cfg = _config(tmp_path)
+    on = CABLED
     c = gxport.with_gx_port(cfg, on)
     assert c.mqtt.hosts == ("10.43.0.10", "192.0.2.5", "venus.local") and c.mqtt.host == "10.43.0.10"
     assert gxport.with_gx_port(c, on).mqtt.hosts == c.mqtt.hosts                     # no duplicate

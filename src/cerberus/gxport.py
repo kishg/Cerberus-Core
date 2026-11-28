@@ -332,12 +332,25 @@ def via(ip: str | None, s: Settings | None = None) -> str | None:
     return "gx_port" if (a in s.network or a in LINK_LOCAL) else "lan"
 
 
+def cable_ready(status: dict) -> bool:
+    """Whether the GX is really on the cable: the port is set up, the link has carrier, and the GX
+    holds its DHCP lease or has answered at its address there. An empty port (no cable, or nothing at
+    the other end) is not: the collector would wait on it before failing over to the LAN."""
+    gx = status.get("gx_address")
+    return (status.get("state") == "on" and status.get("link") == "up" and bool(status.get("dhcp"))
+            and bool(gx) and (gx in (status.get("leases") or []) or gx in (status.get("neighbors") or [])))
+
+
 def with_gx_port(cfg, status: dict):
-    """The collector's Cerbo addresses with the GX's address on the port first, while the port is up
-    (the service says "on"). The LAN addresses stay as the fallback: the GX on Wi-Fi, through the
-    router."""
+    """The collector's Cerbo addresses with the GX's address on the port first, but only while the GX
+    is really on the cable (cable_ready). Otherwise the configured addresses, unchanged. The LAN
+    addresses stay as the fallback either way: the GX on Wi-Fi, through the router.
+
+    Decided when the collector starts. While it runs, plugging the GX in restarts it into the cable
+    (Cerberus._config_changed, like a settings change); a pulled cable needs no restart, since the
+    MQTT client fails over to the next address on its own."""
     s = getattr(cfg, "gx_port", None)
-    if s is None or not s.enabled or not s.dhcp or status.get("state") != "on" or not status.get("gx_address"):
+    if s is None or not s.enabled or not s.dhcp or not cable_ready(status):
         return cfg
     first = str(status["gx_address"])
     hosts = (first,) + tuple(h for h in cfg.mqtt.hosts if h != first)

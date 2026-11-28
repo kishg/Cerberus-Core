@@ -435,6 +435,8 @@ class Cerberus:
         self.config_path = path
         self.restart_requested = False
         self._config_mtimes = self._mtimes()
+        # The GX's own cable (cerberus.gxport): plugged in while running, restart to try it first.
+        self._cable_ready = gxport.cable_ready(gxport.read_status())
 
     def _mtimes(self) -> tuple:
         return _mtimes(config_files(self.config_path))
@@ -446,6 +448,8 @@ class Cerberus:
         takes the collector down."""
         if getattr(self, "config_path", None) is None:
             return False
+        if self._gx_cable_plugged_in():
+            return True
         now = self._mtimes()
         if now == self._config_mtimes:
             return False
@@ -456,6 +460,22 @@ class Cerberus:
             log.error("config changed but does not load, keeping the running settings: %s", err)
             return False
         log.warning("config changed; restarting to apply it")
+        self.restart_requested = True
+        return True
+
+    def _gx_cable_plugged_in(self, status: dict | None = None) -> bool:
+        """The GX just came up on the box's own cable: restart so it is tried first (host order is set
+        at start). Only on the way up: a pulled cable is handled by failover, and the next start
+        leaves the cable out of the order."""
+        ready = gxport.cable_ready(gxport.read_status() if status is None else status)
+        was, self._cable_ready = getattr(self, "_cable_ready", ready), ready
+        cfg = getattr(self, "cfg", None)
+        gx_port = getattr(cfg, "gx_port", None)
+        if not ready or was or gx_port is None or not gx_port.enabled or not gx_port.dhcp:
+            return False
+        if cfg.mqtt.hosts and cfg.mqtt.hosts[0] == gx_port.gx_address:
+            return False                          # already first
+        log.warning("the GX is on the box's own cable now; restarting to read it there")
         self.restart_requested = True
         return True
 
