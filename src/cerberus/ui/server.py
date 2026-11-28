@@ -23,6 +23,9 @@ cloud relay later):
   GET  /api/v1/wifi               the box's own Wi-Fi network (cerberus.wifiap): on/off, state, name,
                                   address, phones joined; the password only with a session
   GET  /api/v1/wifi/qr.svg        the QR code a phone's camera reads to join it; needs a session
+  GET  /api/v1/wifi/identity      the box's local client only (its cloud agent): the network's name, the
+                                  password printed on the box's label, and the UI's address, so KNM's
+                                  console can print the label; made if there's none yet
   GET  /api/v1/settings           editable settings, values and where they came from,
                                   and what setup detection proposes for each
   GET  /api/v1/setup/detect       what the Cerbo reports, and the proposals (cerberus.detect,
@@ -345,6 +348,18 @@ def make_handler(app: App):
                                                    support_cfg=self._support_cfg()))
             if ep == "victron/imports":
                 return self._victron_view()
+            if ep == "wifi/identity":
+                # For printing the box's label from KNM's console (Core #53): only the box's own agent,
+                # on the box, with its token; never a relayed or remote request.
+                if not (app.config_path and localclient.authorized(app.config_path, self.client_address[0], self.headers)):
+                    return self._json(403, {"error": "only the box's local client"})
+                store = SecretStore.for_config(app.config_path)
+                name, _ = wifiap.identity(store)
+                s = wifiap.settings_from(cfg_mod.read_raw(app.config_path))
+                log.info("box Wi-Fi identity given to the local client (for the box's label)")
+                return self._json(200, {"ssid": name, "password": store.get(wifiap.LABEL_SECRET),
+                                        "url": f"http://{ipaddress.ip_interface(s.address).ip}:{wifiap.UI_PORT}",
+                                        "enabled": s.enabled})
             try:
                 conn = connect_ro(app.db_path)
             except sqlite3.Error as err:

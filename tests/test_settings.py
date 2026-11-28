@@ -312,3 +312,42 @@ def test_wifi_view_shows_the_network_and_the_password_only_with_a_session(cfg, t
     finally:
         httpd.shutdown()
         httpd.server_close()
+
+
+def test_wifi_identity_is_for_the_box_local_client_only(cfg, tmp_path):
+    from cerberus import localclient, wifiap
+    from cerberus.secretstore import SecretStore
+    from cerberus.ui.server import App, serve
+    tokf = tmp_path / "local-token"
+    tokf.write_text("local-client-token-0123456789abcdef0123")
+    tokf.chmod(0o600)
+    raw = yaml.safe_load(cfg.read_text()) or {}
+    raw["local_client"] = {"token_file": str(tokf)}
+    cfg.write_text(yaml.safe_dump(raw))
+    assert localclient.token_file(cfg)
+    db = Db(str(tmp_path / "i.db"))
+    httpd = serve(App.from_config(str(cfg), db._path), "127.0.0.1", 0)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{httpd.server_address[1]}"
+
+    def get(headers):
+        r = urllib.request.Request(base + "/api/v1/wifi/identity", headers={"Host": "127.0.0.1", **headers})
+        try:
+            with urllib.request.urlopen(r, timeout=5) as resp:
+                return resp.status, json.loads(resp.read())
+        except urllib.error.HTTPError as e:
+            return e.code, None
+    try:
+        good = {"Authorization": "Bearer local-client-token-0123456789abcdef0123"}
+        assert get({})[0] == 403                                              # no token
+        assert get({"Authorization": "Bearer wrong"})[0] == 403
+        assert get({**good, "X-Cerberus-Via": "relay"})[0] == 403             # relayed: never the local client
+        code, ident = get(good)
+        store = SecretStore.for_config(cfg)
+        assert code == 200 and ident["ssid"] == store.get(wifiap.SSID_SECRET)
+        assert ident["password"] == store.get(wifiap.LABEL_SECRET) and ident["url"] == "http://10.42.0.1:8088"
+        store.set(wifiap.SECRET, "ChangedPass12")                              # the label shows the label's
+        assert get(good)[1]["password"] == store.get(wifiap.LABEL_SECRET) != "ChangedPass12"
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
