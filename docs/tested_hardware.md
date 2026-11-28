@@ -26,7 +26,7 @@ about 0.01, and its three processes (collector, Bluetooth, UI) use about
 
 | Hardware | OS | Status | Notes |
 |---|---|---|---|
-| **Beelink Mini S13** (Intel N150, 16 GB, 512 GB SATA SSD, Intel AX201 WiFi/Bluetooth, 2x 2.5 GbE) | Ubuntu 24.04 | **Runs Cerberus full time** since 2026-11-20, on a house network. | Not in a van yet, so Bluetooth to the packs and its 12 V supply are still untested. Also runs Home Assistant in Docker with room to spare. Any Intel N100 / N150 mini PC should behave the same. |
+| **Beelink Mini S13** (Intel N150, 16 GB, 512 GB SATA SSD, Intel AX201 WiFi/Bluetooth, 2x 2.5 GbE) | Ubuntu 24.04 | **Runs Cerberus full time** since 2026-11-20, on a house network. | Not in a van yet, so Bluetooth to the packs and its 12 V supply are still untested. Also runs Home Assistant in Docker with room to spare. Its second Ethernet port is for the Cerbo cable (Core #53); not yet tried with a Cerbo on it. Any Intel N100 / N150 mini PC should behave the same. |
 | **MacBook** (Apple silicon) | macOS, under launchd | **Ran in a van**, 2026-08 to 2026-11, now retired. | Works, but loses data whenever the lid closes or it sleeps on battery. Bluetooth gives per-host UUIDs, not MACs, so the config changes when moving to Linux. Fine for development, not for a van. |
 | **Victron Cerbo GX** | Venus OS 3.66 (Python 3.12) | **Test suite passes**; never run as the collector. | Storage, surviving firmware updates, and sharing Bluetooth with the GX are all open. |
 

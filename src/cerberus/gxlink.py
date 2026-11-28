@@ -16,6 +16,9 @@ the HA ``cerbo_online`` sensor's attributes, and the health report.
   less than cloud_after_seconds), "connecting", "no_data" (connected, but nothing real has come
   from the GX: the relay's retained Serial doesn't count), or "delivering".
 * **fallback_last**: when the cloud last delivered something real.
+* **via** (only while up): which way the box reaches the GX: "gx_port" (the GX cabled to the box's
+  second Ethernet port, cerberus.gxport) or "lan" (through the van's network). Box UI and HA only:
+  the health report keeps its own allowlist.
 """
 
 from __future__ import annotations
@@ -114,7 +117,7 @@ class LinkWatch:
             return "delivering"
         return "no_data" if self.cloud_connected else "connecting"
 
-    def view(self, now: float, local_down_since: float | None = None) -> dict:
+    def view(self, now: float, local_down_since: float | None = None, via: str | None = None) -> dict:
         ok = self.lan_ok(now)
         return {
             "lan": "ok" if ok else "down",
@@ -123,4 +126,5 @@ class LinkWatch:
             # The fallback only runs while the local link is down; with it up, there's nothing to say.
             "fallback": None if ok else self.fallback_state(now, local_down_since),
             "fallback_last": None if ok else self.cloud_last,
+            "via": via if ok else None,
         }

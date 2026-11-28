@@ -1,0 +1,10 @@
+[Unit]
+Description=Restart the GX Ethernet port's service when its settings change
+
+[Path]
+PathChanged=/etc/cerberus/setup.yaml
+PathChanged=/etc/cerberus/config.yaml
+Unit=cerberus-gx-port-reload.service
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,26 @@
+[Unit]
+Description=Cerberus: the GX on the box's second Ethernet port (no router needed to collect; Core #53)
+# networkd serves the port; this writes its config and rules, then reports on it every 30 s.
+After=systemd-networkd.service
+Wants=systemd-networkd.service
+# The collector reads this service's status to try the GX's own cable first (cerberus.service: After=).
+Before=cerberus.service
+
+[Service]
+Type=notify
+NotifyAccess=main
+# Root: it writes the port's systemd-networkd file (/run/systemd/network, gone at reboot until this
+# runs again) and its isolation rules (nftables, table cerberus_gx). It reads the settings (gx_port
+# in config.yaml / setup.yaml) and writes only /run/cerberus-gx-port (status, for the UI and the
+# collector). It never routes for the GX: no gateway, no DNS, nothing forwarded.
+# Stopping it leaves the port as it is (a settings change restarts it and the GX shouldn't drop
+# off); gx_port.enabled: false takes the port down.
+Environment=CERBERUS_LOG_DIR=/var/log/cerberus
+WorkingDirectory=/opt/cerberus
+ExecStart=/opt/cerberus/.venv/bin/python -m cerberus.gxport run --config /etc/cerberus/config.yaml
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=10
+
+[Install]
+WantedBy=multi-user.target

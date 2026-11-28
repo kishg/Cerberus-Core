@@ -17,6 +17,7 @@ from . import heater as heater_mod
 from . import inverter_idle as inverter_idle_mod
 from . import location as location_mod
 from . import model as model_mod
+from . import gxport as gxport_mod
 from . import wifiap as wifiap_mod
 from . import obd as obd_mod
 from . import profile as profile_mod
@@ -337,6 +338,8 @@ class Config:
     support: SupportConfig = SupportConfig()
     # The box's own Wi-Fi network (cerberus.wifiap, Core #53): on by default; run by its own root service.
     wifi_ap: wifiap_mod.Settings = wifiap_mod.Settings()
+    # The GX on the box's second Ethernet port (cerberus.gxport, Core #53): on by default; its own root service.
+    gx_port: gxport_mod.Settings = gxport_mod.Settings()
 
 
 def _parse_support(raw: dict) -> SupportConfig:
@@ -623,6 +626,13 @@ def _parse_wifi_ap(raw: dict) -> wifiap_mod.Settings:
     try:
         return wifiap_mod.settings_from(raw)
     except wifiap_mod.WifiError as err:
+        raise ConfigError(str(err)) from None
+
+
+def _parse_gx_port(raw: dict) -> gxport_mod.Settings:
+    try:
+        return gxport_mod.settings_from(raw)
+    except gxport_mod.GxPortError as err:
         raise ConfigError(str(err)) from None
 
 
@@ -1094,6 +1104,7 @@ user_agent=str(w_raw.get("user_agent", DEFAULT_WEATHER_UA)).strip(),
         victron=_parse_victron(raw),
         inverter_idle=_parse_inverter_idle(raw),
         wifi_ap=_parse_wifi_ap(raw),
+        gx_port=_parse_gx_port(raw),
         health_report=_parse_health_report(raw, store),
         support=_parse_support(raw),
     )

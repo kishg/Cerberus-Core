@@ -12,7 +12,11 @@
 #   /var/lib/cerberus       the database (the collector's StateDirectory)
 #   /var/log/cerberus       each service's log file, 0750, files 0640, rotated
 #                           (cerberus.log); the support file reads them
-#   systemd units           cerberus (collector), cerberus-ui, cerberus-ble
+#   systemd units           cerberus (collector), cerberus-ui, cerberus-ble;
+#                           cerberus-wifi (the box's own Wi-Fi network) and
+#                           cerberus-gx-port (the GX cabled to the box's
+#                           second Ethernet port: an address and DHCP for the
+#                           GX alone, no router, no DNS, nothing forwarded)
 #
 # No config.yaml is installed: on a new box the collector and the BLE sidecar
 # wait, and the UI shows first-run setup at http://<box>:8088. An existing
@@ -34,7 +38,7 @@ for arg in "$@"; do
   case "$arg" in
     --no-apt) APT=0 ;;
     --no-systemd) SYSTEMD=0 ;;
-    -h|--help) sed -n '2,26p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,27p' "$0"; exit 0 ;;
     *) echo "install: unknown option $arg" >&2; exit 64 ;;
   esac
 done
@@ -90,10 +94,16 @@ install -d -o cerberus -g cerberus -m 750 "$LOGS"
 if [[ $SYSTEMD -eq 1 ]]; then
   say "systemd units"
   for unit in cerberus.service cerberus-ui.service cerberus-ble.service \
-              cerberus-wifi.service cerberus-wifi.path cerberus-wifi-reload.service; do
+              cerberus-wifi.service cerberus-wifi.path cerberus-wifi-reload.service \
+              cerberus-gx-port.service cerberus-gx-port.path cerberus-gx-port-reload.service; do
     install -m 644 "$SRC/systemd/$unit" "/etc/systemd/system/$unit"
   done
   systemctl daemon-reload
+  # The GX on the second Ethernet port (gx_port.enabled, on by default), before the collector reads its
+  # status. On a box with one port, or a network not run by systemd-networkd, it changes nothing and
+  # says why (python -m cerberus.gxport status).
+  systemctl enable --now cerberus-gx-port.path cerberus-gx-port.service
+  systemctl restart cerberus-gx-port.service
   systemctl enable --now cerberus.service cerberus-ui.service cerberus-ble.service
   # A re-install runs the new code.
   systemctl restart cerberus.service cerberus-ui.service cerberus-ble.service
@@ -124,6 +134,9 @@ Next:
        sudo -u cerberus $PREFIX/.venv/bin/python -m cerberus.ui --config $ETC/config.yaml --set-pin
   2. Open http://${ip:-<this box>}:8088 from a phone or laptop on the van's
      network and follow "Set up Cerberus" (finds the Cerbo, asks its password).
+     Recommended: cable the Cerbo to the box's second Ethernet port first; it
+     gets 10.43.0.10 there. Keep the Cerbo's own Wi-Fi to the van's router:
+     the box never gives it internet (docs/install.md).
   3. Optional: remote access and HTTPS with Tailscale (docs/install.md).
   4. Print the box's Wi-Fi label and stick it on the box: in the van with no
      router, it's how a phone gets in (network name, password, a QR code to

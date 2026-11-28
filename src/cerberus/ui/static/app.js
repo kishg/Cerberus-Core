@@ -1093,6 +1093,41 @@ function wifiHealthRow(w) {
   return tr;
 }
 
+// The GX's own cable: the Cerbo on the box's second Ethernet port (Core #53), and which way the box
+// reaches the Cerbo now (that port, the van's network, or Victron's cloud).
+const GX_VIA = { gx_port: "over this cable", lan: "over the van's network", cloud: "through Victron's cloud" };
+function gxPortHealthRow(g) {
+  const tr = el("tr"), name = el("td");
+  name.append(document.createTextNode("Cerbo cable (box Ethernet)"));
+  let icon, text, note;
+  if (g.state === "on" && g.link === "up") {
+    [icon, text] = g.via === "gx_port" ? ["good", "Collecting"] : ["warning", "Cable in, Cerbo not used"];
+    note = g.via === "gx_port" ? `On ${g.interface}` : g.gx_seen
+      ? `The Cerbo answers on ${g.interface}; the box reads it ${GX_VIA[g.via] || "nowhere yet"}.`
+      : `Something is cabled to ${g.interface}, but it hasn't taken the Cerbo's address. Restart the Cerbo, or check its Ethernet is on DHCP.`;
+    if (g.devices > 1) note += ` ${g.devices} devices answer on this port: only the Cerbo belongs there.`;
+  } else if (g.state === "on") {
+    [icon, text] = ["muted", "No cable"];
+    note = `Cable the Cerbo to ${g.interface} so collection doesn't need the van's router.`;
+  } else if (g.state === "stale") {
+    [icon, text, note] = ["warning", "Not answering", "The port's service stopped reporting."];
+  } else if (g.state === "error") {
+    [icon, text, note] = ["warning", "Not working", g.error];
+  } else if (g.state === "off") {
+    [icon, text, note] = ["muted", "Off", "Turned off in Settings."];
+  } else if (g.state === "unavailable") {
+    [icon, text, note] = ["muted", "Not available", g.error];
+  } else {
+    [icon, text, note] = ["muted", "Not reported yet", null];
+  }
+  if (note) name.append(el("span", { class: "note" }, note));
+  const st = el("span", { class: "st" });
+  st.append(statusIcon(icon), document.createTextNode(text));
+  const stc = el("td"); stc.append(st);
+  tr.append(name, el("td", {}, g.via ? `Cerbo read ${GX_VIA[g.via]}` : "—"), stc);
+  return tr;
+}
+
 function renderHealth(d) {
   const tbody = document.querySelector("#sources tbody");
   tbody.replaceChildren();
@@ -1108,6 +1143,7 @@ function renderHealth(d) {
     tbody.append(tr);
   }
   if (d.wifi) tbody.append(wifiHealthRow(d.wifi));
+  if (d.gx_port) tbody.append(gxPortHealthRow(d.gx_port));
 
   const cov = chartCard("Collected, last 7 days", "% of each day with live battery data");
   document.getElementById("coverage").replaceChildren(cov.card);
@@ -1556,7 +1592,7 @@ function renderWizard(signedIn) {
       const off = gx.filter((c) => c.mqtt === false);
       msg1.textContent = gx.length ? "" : (r.candidates.length
         ? "Found MQTT brokers but no Cerbo. Pick one if you're sure, or type the Cerbo's address."
-        : "No Cerbo found. Check it's on the same network, then type its address.");
+        : "No Cerbo found. Check it's cabled to the box's second Ethernet port or on the same network, then type its address.");
       if (off.length && off.length === gx.length) {
         msg1.className = "msg err";
         msg1.textContent = `Found the Cerbo at ${off[0].address}, but MQTT is off on it. On the Cerbo, turn on ` +
@@ -1569,7 +1605,7 @@ function renderWizard(signedIn) {
         radio.addEventListener("change", () => { w.address = c.address; w.host = c.host; manual.value = ""; });
         const text = c.host === c.address ? c.address : `${c.host} (${c.address})`;
         list.append(el("label", { class: "cand", for: id }, ""));
-        list.lastChild.append(radio, document.createTextNode(` ${text}${c.gx ? " · Victron GX" : ""}${c.mqtt === false ? " · MQTT is off" : ""}`));
+        list.lastChild.append(radio, document.createTextNode(` ${text}${c.gx ? " · Victron GX" : ""}${c.via === "gx_port" ? " · on the box's Ethernet cable" : ""}${c.mqtt === false ? " · MQTT is off" : ""}`));
       }
       const first = list.querySelector("input");
       if (first && gx.length) { first.checked = true; first.dispatchEvent(new Event("change")); }
