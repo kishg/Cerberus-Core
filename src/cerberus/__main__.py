@@ -1365,7 +1365,7 @@ def main() -> int:
     parser.add_argument("--log-level", default="INFO")
     args = parser.parse_args()
 
-    setup_logging(args.log_level)
+    setup_logging(args.log_level, service="cerberus")
 
     try:
         cfg = cfg_mod.load(args.config)

@@ -39,7 +39,7 @@ def main() -> int:
     ap.add_argument("--set-pin", action="store_true",
                     help="set or change the settings PIN, then exit")
     args = ap.parse_args()
-    setup_logging(args.log_level)
+    setup_logging(args.log_level, service="cerberus-ui")
 
     if args.set_pin:
         pin = getpass.getpass("New settings PIN (4-12 digits): ")

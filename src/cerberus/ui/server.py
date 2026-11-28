@@ -28,6 +28,11 @@ cloud relay later):
   GET  /api/v1/wifi/identity      the box's local client only (its cloud agent): the network's name, the
                                   password printed on the box's label, and the UI's address, so KNM's
                                   console can print the label; made if there's none yet
+  GET  /api/v1/support/preview    what the support file holds, and its config with secrets removed;
+                                  ?position=1 as it would be with position included; needs a session
+  GET  /api/v1/support/file       the support file itself (cerberus.supportfile): a zip of status,
+                                  health, findings, events, box health, config and logs, no secrets;
+                                  position only with ?position=1; needs a session
   GET  /api/v1/settings           editable settings, values and where they came from,
                                   and what setup detection proposes for each
   GET  /api/v1/setup/detect       what the Cerbo reports, and the proposals (cerberus.detect,
@@ -108,6 +113,7 @@ from urllib.parse import parse_qs, quote, urlsplit
 from .. import config as cfg_mod
 from .. import blescan, detect, firstrun, health, learn, location, notes, phonefix, status
 from .. import healthreport, inverter_idle, localclient, service_log, storage, syncer, victron_imports, wifiap
+from .. import supportfile
 from ..secretstore import SecretStore
 from .. import settings as settings_mod
 from . import access, api, auth
@@ -350,6 +356,8 @@ def make_handler(app: App):
                                                    support_cfg=self._support_cfg()))
             if ep == "victron/imports":
                 return self._victron_view()
+            if ep in ("support/preview", "support/file"):
+                return self._support(ep, url)
             if ep == "wifi/identity":
                 # For printing the box's label from KNM's console (Core #53): only the box's own agent,
                 # on the box, with its token; never a relayed or remote request.
@@ -417,6 +425,40 @@ def make_handler(app: App):
                 return self._json(503, {"error": f"database error: {err}"})
             finally:
                 conn.close()
+
+        def _support(self, ep, url):
+            """The support file (Core #44): signed in only, as it holds the van's config and logs."""
+            if not app.config_path:
+                return self._json(404, {"error": "support file unavailable"})
+            if not app.sessions.valid(self._token()):
+                return self._json(401, {"error": "enter the PIN to make a support file"})
+            with_pos = parse_qs(url.query).get("position", ["0"])[0] in ("1", "true", "yes")
+            if ep == "support/preview":
+                return self._json(200, supportfile.preview(app.config_path, with_pos))
+            now = int(time.time())
+            ctx = None
+            try:
+                conn = connect_ro(app.db_path)
+                try:
+                    ctx = app.context(conn)
+                finally:
+                    conn.close()
+            except sqlite3.Error:
+                pass                       # the file says the database couldn't be read
+            files = supportfile.build(app.config_path, app.db_path, include_position=with_pos, now=now, ctx=ctx)
+            device = json.loads(files["box.json"]).get("device_id")
+            body = supportfile.zip_bytes(files, now)
+            name = supportfile.filename(device, now)
+            log.info("support file made for %s (%d files, %d bytes, position %s)", self.client_address[0],
+                     len(files), len(body), "included" if with_pos else "left out")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/zip")
+            self.send_header("Content-Disposition", f'attachment; filename="{name}"')
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.end_headers()
+            self.wfile.write(body)
 
         def _health_report_view(self, conn):
             """What the owner needs to see about health reports: whether they're on,

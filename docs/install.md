@@ -230,6 +230,14 @@ box's services.
 - **Update:** `git pull` in the checkout, then `sudo bin/install-linux.sh`.
 - **Logs:** `journalctl -u cerberus -u cerberus-ui -u cerberus-ble -u cerberus-wifi -f`.
   "waiting for first-run setup" before setup is normal.
+- **Support file:** Settings > Support > Download support file (signed in) gives one zip for
+  support: status, health, findings, events, box health, settings and the last lines of each log,
+  with secrets removed and the position only if ticked (`cerberus.supportfile`).
+- **Log files:** besides the journal, each service writes `/var/log/cerberus/<service>.log`
+  (folder 0750 and files 0640, `cerberus:cerberus`; rotated at 2 MB, 3 old files kept). The support
+  file reads these, never the system journal. A box installed before them needs
+  `sudo bin/install-linux.sh` again to make the folder and pick up the new units; until then
+  the support file says each log couldn't be read.
 - **Remove:** `sudo systemctl disable --now cerberus cerberus-ui cerberus-ble cerberus-wifi cerberus-wifi.path`,
   then delete `/opt/cerberus`, and `/etc/cerberus` and `/var/lib/cerberus`
   if the settings and history should go too.

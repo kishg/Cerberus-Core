@@ -263,9 +263,9 @@ footer a { color: var(--text-2); }
 
 
 /* Box health reports: the exact payload, readable and scrollable on a phone. */
-.health-report details { margin-top: 6px; }
-.health-report summary { cursor: pointer; font-size: 13px; }
-.health-report .payload {
+.health-report details, .support details { margin-top: 6px; }
+.health-report summary, .support summary { cursor: pointer; font-size: 13px; }
+.health-report .payload, .support .payload {
   font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
   background: var(--page); border: 1px solid var(--grid, #e4e2dc); border-radius: 6px;
   padding: 8px; margin: 6px 0 0; max-height: 320px; overflow: auto; white-space: pre;
@@ -355,3 +355,7 @@ header.band { display: block; padding: 0; }
   background: #fff;
 }
 .wifi .warn { border-left: 3px solid var(--warning); padding-left: 10px; }
+
+/* Support file (Core #44): the position tick box and what's inside. */
+.support-tick { display: flex; align-items: center; gap: 8px; margin: 8px 0; font-size: 14px; }
+.support-inside ul { margin: 4px 0 8px; padding-left: 20px; font-size: 13px; color: var(--text-2); }

@@ -10,6 +10,10 @@ Type=simple
 # in the UI to write it.
 EnvironmentFile=-/etc/cerberus/.env
 Environment=CERBERUS_SQLITE_PATH=/var/lib/cerberus/cerberus.db
+# Its own log file too, beside the journal (src/cerberus/log.py; the support file reads it).
+Environment=CERBERUS_LOG_DIR=/var/log/cerberus
+LogsDirectory=cerberus
+LogsDirectoryMode=0750
 WorkingDirectory=/opt/cerberus
 ExecStart=/opt/cerberus/.venv/bin/python -m cerberus --config /etc/cerberus/config.yaml
 Restart=always

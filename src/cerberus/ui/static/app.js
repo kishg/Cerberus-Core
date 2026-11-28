@@ -1310,6 +1310,7 @@ async function loadSettings() {
     renderBluetooth(d.signed_in);
     renderPhone(d.signed_in);
     renderVictron(d.signed_in);
+    renderSupport(d.signed_in);
     getJSON("/wifi").then((w) => renderWifi(w, d.signed_in)).catch(() => {});
     getJSON("/sync").then(renderSync).catch(() => {}).then(() => getJSON("/health-report")).then(renderHealthReport).catch(() => {});
   } catch (err) { console.error(err); }
@@ -1888,6 +1889,64 @@ function renderVictron(signedIn) {
   card.append(msg, list);
   form.append(card);
   loadVictron(list, signedIn);
+}
+
+// ------------------------------------------------------------ Support file (Core #44)
+
+// One file the owner emails to support: status, health, findings, events, box health, settings and
+// logs, with secrets removed (cerberus.supportfile). Position only when ticked. Shows what's inside first.
+function renderSupport(signedIn) {
+  const form = document.getElementById("settings-form");
+  if (!form || form.querySelector(".support")) return;
+  const card = el("section", { class: "card set-group support" });
+  card.append(el("h2", {}, "Support"),
+    el("p", { class: "help" }, "Download one file to email to support when they can't reach this box. It says what Cerberus has stored, so it works with the Cerbo offline. Passwords, the PIN, tokens and keys are never in it."));
+  if (!signedIn) {
+    card.append(el("p", { class: "help" }, "Sign in above to make a support file."));
+    form.append(card);
+    return;
+  }
+  const tick = el("input", { type: "checkbox", id: "support-position" });
+  const tickRow = el("label", { class: "support-tick", for: "support-position" });
+  tickRow.append(tick, document.createTextNode(" Include the van's position"));
+  const btn = el("button", { type: "button", class: "btn" }, "Download support file");
+  const msg = el("div", { class: "msg", role: "status" });
+  const inside = el("div", { class: "support-inside" });
+  card.append(tickRow, el("div", { class: "lock-row" }), inside, msg);
+  card.querySelector(".lock-row").append(btn);
+  const q = () => (tick.checked ? "?position=1" : "");
+  async function showInside() {
+    try {
+      const p = await getJSON("/support/preview" + q());
+      const list = el("ul", {});
+      for (const s of p.sections) list.append(el("li", {}, `${s.name}: ${s.what}`));
+      const never = el("p", { class: "help" }, `Never included: ${p.never.join("; ")}. ` +
+        (p.position_included ? "Position: included." : "Position: left out."));
+      const details = el("details", {});
+      details.append(el("summary", {}, "Preview the settings, as they'll be sent"),
+        el("pre", { class: "payload" }, `# config.yaml\n${p.config["config.yaml"]}\n# setup.yaml\n${p.config["setup.yaml"]}`));
+      inside.replaceChildren(el("h3", {}, "What's inside"), list, never, details);
+    } catch (err) { inside.replaceChildren(el("p", { class: "empty" }, `Couldn't load the preview: ${err.message}`)); }
+  }
+  tick.addEventListener("change", showInside);
+  btn.addEventListener("click", async () => {
+    msg.className = "msg"; msg.textContent = "Making the support file…";
+    btn.disabled = true;
+    try {
+      const t = token();
+      const r = await fetch(API + "/support/file" + q(), { cache: "no-store", headers: t ? { Authorization: `Bearer ${t}` } : {} });
+      if (!r.ok) { let e = {}; try { e = await r.json(); } catch (_) {} throw new Error(e.error || `HTTP ${r.status}`); }
+      const name = (/filename="([^"]+)"/.exec(r.headers.get("Content-Disposition") || "") || [])[1] || "cerberus-support.zip";
+      const url = URL.createObjectURL(await r.blob());
+      const a = el("a", { href: url, download: name });
+      document.body.append(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      msg.textContent = `Downloaded ${name}. Attach it to an email to support.`;
+    } catch (err) { msg.className = "msg err"; msg.textContent = err.message; }
+    btn.disabled = false;
+  });
+  form.append(card);
+  showInside();
 }
 
 async function loadVictron(box, signedIn) {
