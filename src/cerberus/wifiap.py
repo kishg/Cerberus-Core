@@ -16,7 +16,8 @@ opens the UI at ``http://10.42.0.1:8088``. It is on by default and stays on (dec
   can't live only behind the UI: ``python -m cerberus.wifiap label`` makes them if needed and draws a label
   with both, a QR code that joins the network and one that opens the UI. Run it once when the box is set up
   and stick the label on the box. The label's password is kept apart (``wifi_password_label``): the UI can
-  make a new password, warns that the label then stops working, and can go back to the label's.
+  make a new password, warns that the label then stops working, and can go back to the label's. A lost
+  label gets a new label password (from KNM's console, through the box's agent), and a new label.
 - **"With the van".** Its addresses are ordinary local ones, so phonefix counts a phone on it as on the
   van's network, like the box's LAN.
 
@@ -163,6 +164,15 @@ def on_label(store: SecretStore) -> bool:
     """Whether the network still uses the password printed on the box's label."""
     label = store.get(LABEL_SECRET)
     return bool(label) and store.get(SECRET) == label
+
+
+def new_label_password(store: SecretStore) -> str:
+    """A lost label, or one someone shouldn't have seen: a fresh password, used now and printed on the new
+    label. The old label stops working."""
+    pw = new_password()
+    store.set(LABEL_SECRET, pw)
+    store.set(SECRET, pw)
+    return pw
 
 
 def use_label_password(store: SecretStore) -> None:
