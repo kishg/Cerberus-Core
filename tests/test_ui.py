@@ -304,6 +304,25 @@ def test_every_response_refuses_framing(server, method, path):
     assert r.headers.get_all("X-Content-Type-Options") == ["nosniff"]    # sent once, not twice
 
 
+def test_health_page_shows_the_box_wifi_network(db, tmp_path):
+    from cerberus import wifiap
+    now = int(datetime.now().timestamp())
+    _write_snapshot(db, now)
+    st = tmp_path / "wifi"
+    wifiap.write_status({"state": "error", "error": "hostapd couldn't start the network", "updated": now}, st)
+    app = App(db._path, 1, 310, None)
+    app.wifi_status_dir = st
+    httpd = serve(app, "127.0.0.1", 0)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    try:
+        h = json.loads(_get(f"http://127.0.0.1:{httpd.server_address[1]}/api/v1/health")[2])
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+    assert h["wifi"]["state"] == "error" and h["wifi"]["error"] == "hostapd couldn't start the network"
+    assert h["wifi"]["clients"] is None
+
+
 def test_ui_connection_cannot_write(db):
     conn = connect_ro(db._path)
     with pytest.raises(sqlite3.OperationalError):
